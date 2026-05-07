@@ -1,95 +1,1045 @@
-# Agent-Tune-CLI 自动化评估与调优工具
+# 1. 产品概述
 
-## 1. 产品概述
-### 1.1 产品背景
-在 Agent 和 LLM 应用的开发过程中，效果评估和错误调优往往占据大量时间。传统的测试手段难以应对生成式 AI 的不确定性，且修复过程依赖人工排查日志和手动修改代码。本产品旨在构建一个运行在终端的轻量级自动化测试与自修复闭环（Agentic CI/CD），大幅缩短独立开发者和敏捷团队的迭代周期。
+## 1.1 产品名称
 
-### 1.2 核心目标
-* **零侵入性 (Zero-Intrusion)：** 无需修改待测 Agent 核心业务逻辑，通过 REST API 和标准 Header 进行黑盒测试与白盒观测。
-* **规范驱动 (Spec-Driven)：** 以结构化的数据集作为 Executable Spec，以结构化的诊断报告驱动 AI 辅助编程工具。
-* **端到端自动化：** 实现“批量执行 -> 自动评估 -> 失败聚类 -> 代码修复 -> 回归验证”的完整微循环。
+**Agent-Eval-CLI**
 
-### 1.3 目标用户
-* 专注于 Micro SaaS 与 Agent 应用开发的独立开发者。
-* 习惯在终端环境（如 Ghostty、Tmux）工作，并熟练使用 Vibe Coding 或命令行 AI 辅助编程工具的工程师。
+## 1.2 产品定位
 
----
+Agent-Eval-CLI 是一个 **完全 local-first 的 Agent 批量评测与异常分析命令行工具**。
+它通过本地配置和本地测试数据集，对 Agent 服务进行批量执行、混合评估、失败聚类和分析报告生成，帮助开发者持续发现问题、定位问题、归纳问题，为后续人工调优或结合 Claude Code 进行项目改造与修复提供结构化输入。
 
-## 2. 系统架构与技术栈选型
+## 1.3 产品目标
 
-本系统采用极简的解耦架构，通过 CLI 串联三大开源/成熟工具组件：
+本产品第一阶段不追求自动修复，不提供线上可观测平台，而是聚焦以下核心目标：
 
-* **执行与可观测层：** HTTP/REST Client + **Langfuse** (承载日志、Trace、耗时与工具调用记录)。
-* **评估与诊断层：** **DeepEval** (承载 LLM-as-a-Judge 自动化打分) + 轻量级大模型聚类。
-* **自动修复层：** **Claude Code** (承载基于诊断规范的终端无缝代码修改)。
+1. **批量执行 Agent 测试**
+   基于本地测试集和配置，对目标 Agent 执行大规模批量测试。
 
+2. **结构化评估测试结果**
+   支持硬断言、语义评估、执行语义检查等多种评估方式。
 
+3. **尽可能还原执行现场**
+   通过最小调试元信息采集机制，在不引入在线 tracing 平台的前提下，尽可能保留 Agent 的执行上下文。
 
----
+4. **发现并归类异常问题**
+   对失败样例进行结构化归因和聚类，形成问题簇。
 
-## 3. 核心工作流 (User Journey)
+5. **生成本地分析报告**
+   输出适合开发者阅读的报告，以及适合后续调优工具消费的机器可读结果文件。
 
-用户在终端下的标准操作路径如下：
+## 1.4 非目标
 
-1.  **初始化 (`agent-tune init`)：** 在 Agent 项目根目录生成 `tune.yaml` 和默认的数据集模板目录。
-2.  **编写规范：** 用户在 `test_cases.json` 中填充业务场景、输入载荷与断言标准。
-3.  **运行评估 (`agent-tune run`)：** 引擎批量调用 Agent API，拉取 Langfuse Trace，交由 DeepEval 打分，并输出控制台汇总报告。
-4.  **智能诊断 (`agent-tune diagnose`)：** 提取失败样例，调用 LLM 进行根因聚类分析，生成结构化文档 `diagnostic.md`。
-5.  **一键修复 (`agent-tune fix`)：** 唤起 Claude Code 读取 `diagnostic.md` 执行代码修改，并在完成后自动触发 Regression 回归测试。
+以下能力不属于当前版本主目标：
 
----
+* 不提供 SaaS 服务
+* 不依赖 Langfuse 等线上 observability 平台
+* 不提供 Web Dashboard
+* 不在 V1 中内置自动修复闭环
+* 不强依赖 Claude Code 作为运行时内核
+* 不要求完整 span 级 tracing 体系
 
-## 4. 功能需求详细说明
+## 1.5 目标用户
 
-### 4.1 初始化与配置模块 (Configuration)
-* **功能描述：** 提供全局配置能力，支持多环境变量，确保敏感凭证安全。
-* **需求细项：**
-    * 必须支持从系统环境变量读取密钥（如 `${LANGFUSE_PUBLIC_KEY}`）。
-    * 定义 `tune.yaml`，包含 API 地址、Payload 映射规则（JSON Path 支持）以及 Trace ID 注入方式（默认通过 `X-Tune-Trace-Id` Header）。
-    * 支持自定义 Claude Code 唤起指令及工作区路径约束。
-
-### 4.2 批量执行引擎 (Execution Runner)
-* **功能描述：** 解析测试数据集，并发/串行向目标 Agent 发起 HTTP 请求。
-* **需求细项：**
-    * **动态 Payload 组装：** 根据 `tune.yaml` 的 `payload_mapping` 将数据集的 `inputs` 动态渲染为 API Request Body。
-    * **Trace 绑定：** 为每个 Test Case 生成 UUID，通过 Header 注入，等待 Agent 响应后，轮询/拉取 Langfuse API 获取完整执行拓扑（包含内部 Tool Calls、Retrieved Documents 等）。
-    * **容错处理：** 支持网络超时重试及限流控制。
-
-### 4.3 自动化评估与诊断模块 (Evaluator & Diagnoser)
-* **功能描述：** 对执行结果进行多维断言，并生成高行动力（Actionable）的诊断报告。
-* **需求细项：**
-    * **多态断言适配：** 支持基于大模型的判别（`llm_as_judge`）、结构化匹配（`json_schema_match`）、工具调用检查（`tool_call_check`）等。
-    * **失败聚类 (Clustering)：** 调用辅助 LLM 接口，将未通过测试的用例按 `tags` 和错误表象进行合并（例如：3个用例均因“未调用检索工具”失败）。
-    * **报告生成：** 输出符合 Spec 规范的 Markdown 文件，必须包含错误分类、期望输出、实际 Langfuse Trace 截取及修复建议。
-
-### 4.4 终端自主修复引擎 (Auto-Fix Integration)
-* **功能描述：** 无缝连接终端 AI 编码助手，形成闭环。
-* **需求细项：**
-    * **子进程唤醒：** 基于配置的 CLI 命令（如 `claude -p "..."`），在后台或当前 TTY 拉起子进程。
-    * **上下文收敛：** 限制 AI 助手的修改范围，强制其依据 `diagnostic.md` 中的规范进行点对点修复，避免全局代码篡改。
-    * **状态监听：** 捕获修复工具的 Exit Code，若成功退出，则自动带上 `--regression` 标识重新执行失败的用例集。
+* 持续开发 Agent / LLM 应用的独立开发者
+* 小型敏捷研发团队
+* 偏好终端环境、local-first 工作流的工程师
+* 希望通过测试与报告持续改进 Agent 质量的开发者
 
 ---
 
-## 5. 数据协议与接口标准
+# 2. 产品核心设计原则
 
-### 5.1 评估数据集规范 (`test_cases.json`)
-作为核心的测试协议，支持灵活的断言组合。
-* **`id` / `tags`**: 唯一标识与聚类标签。
-* **`inputs`**: 任意格式的输入集合，解耦 API 结构。
-* **`context`**: RAG 场景下的黄金文档对照组。
-* **`assertions`**: 多维校验规则数组（支持 Threshold、Schema、Exact Match）。
+## 2.1 完全 local-first
 
-### 5.2 诊断报告结构规范 (`diagnostic.md`)
-专为投喂给大模型（如 Claude Code）优化的结构。
-* **[Issue Cluster]**: 问题分类与高频特征。
-* **[Actual vs Expected]**: 具体样例的对比。
-* **[Trace Context]**: 失败瞬间的完整调用栈/参数（精准切片，剔除冗余日志）。
-* **[Required Action]**: 明确的修复指令（修改 Prompt、调整路由逻辑或修正数据解析）。
+所有配置、测试数据、执行结果、分析报告全部保存在本地文件系统中，不依赖线上平台。
+
+## 2.2 评测与调优解耦
+
+产品本体只负责“评测、分析、归类、报告”，不将自动修复与自动调优纳入核心执行链路。
+
+## 2.3 最小可复原执行现场
+
+不追求完整 tracing 平台，而通过统一的 `debug_meta` 协议记录最小必要调试现场。
+
+## 2.4 文件协议优先
+
+所有结果均以本地文件落盘，既适合人阅读，也适合后续程序消费。
+
+## 2.5 接入成本分层
+
+支持从纯黑盒评测到轻量观测评测的分层接入方式，降低原始 Agent 项目的接入门槛。
 
 ---
 
-## 6. 非功能性需求
-1.  **轻量化：** CLI 工具本身使用单文件二进制发布（如 Go/Rust）或轻量的 Node.js/Python 脚本，不引入重度本地数据库依赖。
-2.  **兼容性：** 能够良好运行在 Tmux 等多窗口终端下，不阻塞用户的日常 Shell 交互。
-3.  **安全性：** 工具绝不在日志或生成报告中硬编码任何 API 密钥；对 LLM-as-a-Judge 的 prompt 进行防注入处理。
+# 3. 产品能力边界
+
+---
+
+## 3.1 当前版本必须具备的能力
+
+### 3.1.1 批量执行
+
+* 支持读取本地测试集
+* 支持串行与并发执行
+* 支持超时、重试、失败容错
+* 支持 API / 脚本 / 本地适配器模式
+
+### 3.1.2 混合评估
+
+* 硬断言评估
+* LLM 语义评估
+* 执行语义评估
+
+### 3.1.3 异常发现与聚类
+
+* 标记失败样例
+* 提取 failure signature
+* 进行规则聚类
+* 可选进行 LLM 总结与命名
+
+### 3.1.4 本地结果与报告
+
+* 保存原始执行结果
+* 保存评估结果
+* 保存失败样例
+* 保存聚类结果
+* 生成 Markdown 汇总报告
+* 生成可供后续修复工具消费的 JSON 结构化结果
+
+---
+
+## 3.2 当前版本不包含的能力
+
+* 自动 patch 代码
+* 自动修改 Prompt
+* 自动提交修复 PR
+* 线上运行态观测平台
+* 团队协作界面
+* 实时 trace 可视化
+
+---
+
+# 4. 典型使用场景
+
+## 4.1 场景一：本地批量回归测试
+
+开发者修改了 Agent 路由逻辑后，希望批量回归一组测试集，确认没有明显退化。
+
+## 4.2 场景二：RAG Agent 异常分析
+
+开发者希望定位哪些问题是“未触发检索”导致，哪些问题是“检索触发了但未使用结果”导致。
+
+## 4.3 场景三：版本迭代对比
+
+开发者希望对比不同版本 Agent 在同一批数据集上的通过率与主要失败簇变化。
+
+## 4.4 场景四：为 Claude Code 调优提供输入
+
+开发者希望先通过 Agent-Eval-CLI 生成结构化问题报告，再在后续单独的调优流程中使用 Claude Code 做代码与 Prompt 调整。
+
+---
+
+# 5. 用户工作流
+
+## 5.1 初始化项目
+
+用户执行：
+
+```bash
+agent-eval init
+```
+
+生成：
+
+* `eval.yaml`
+* `cases/`
+* `runs/`
+* `reports/`
+
+## 5.2 准备测试数据
+
+用户在 `cases/*.jsonl` 中编写测试用例。
+
+## 5.3 接入原始 Agent
+
+用户按项目情况选择：
+
+* HTTP 模式
+* 脚本模式
+* 本地适配器模式
+
+如需更低接入成本，可后续通过 Claude Code 进行项目适配改造。
+
+## 5.4 执行批量评测
+
+用户执行：
+
+```bash
+agent-eval run
+```
+
+工具完成：
+
+* 读取 case
+* 批量执行 Agent
+* 采集结果与最小调试现场
+* 执行评估
+* 提取失败样例
+* 聚类
+* 生成报告
+
+## 5.5 查看分析结果
+
+用户执行：
+
+```bash
+agent-eval inspect --run latest
+```
+
+查看：
+
+* 某个 run 的总览
+* 某个 case 的具体失败原因
+* 某个 cluster 的共性问题
+
+## 5.6 导出后续调优输入
+
+用户执行：
+
+```bash
+agent-eval export --run latest
+```
+
+生成：
+
+* `repair_input.json`
+
+供后续 Claude Code 调优流程使用。
+
+---
+
+# 6. 系统整体架构
+
+---
+
+## 6.1 架构概览
+
+```text
++-------------------------+
+|      CLI Interface      |
++-------------------------+
+            |
+            v
++-------------------------+
+|   Config / Dataset      |
++-------------------------+
+            |
+            v
++-------------------------+
+|       Runner Engine     |
+| (execute target agent)  |
++-------------------------+
+            |
+            v
++-------------------------+
+|   Result Collector      |
+| raw output + debug meta |
++-------------------------+
+            |
+            v
++-------------------------+
+|   Evaluation Engine     |
+| rule eval + DeepEval    |
++-------------------------+
+            |
+            v
++-------------------------+
+|   Failure Clusterer     |
++-------------------------+
+            |
+            v
++-------------------------+
+|     Report Generator    |
++-------------------------+
+            |
+            v
++-------------------------+
+| Local File Artifacts    |
++-------------------------+
+```
+
+---
+
+## 6.2 核心模块
+
+### 6.2.1 CLI Interface
+
+负责命令解析、参数路由、输出控制台结果。
+
+### 6.2.2 Config / Dataset Loader
+
+负责加载：
+
+* `eval.yaml`
+* case 文件
+* 模型配置
+* runner 配置
+
+### 6.2.3 Runner Engine
+
+负责：
+
+* 调用 Agent
+* 并发控制
+* 超时重试
+* 错误捕获
+* 采集原始结果
+
+### 6.2.4 Result Collector
+
+负责将每次执行结果统一封装为标准结构，并落盘。
+
+### 6.2.5 Evaluation Engine
+
+负责：
+
+* 执行硬断言
+* 执行语义评估
+* 执行执行语义检查
+
+### 6.2.6 Failure Clusterer
+
+负责：
+
+* 生成 failure signature
+* 聚类失败样例
+* 生成高层问题簇
+
+### 6.2.7 Report Generator
+
+负责：
+
+* 统计汇总
+* Markdown 报告
+* JSON 报告
+* 调优输入导出
+
+---
+
+# 7. 接入模式设计
+
+---
+
+## 7.1 Mode A：HTTP 模式
+
+适合已有服务化 Agent。
+
+### 输入
+
+* API URL
+* 请求方法
+* body 模板
+* headers 模板
+
+### 输出
+
+* HTTP 响应
+* 状态码
+* 耗时
+* 可选 `debug_meta`
+
+### 优点
+
+* 通用性强
+* 最少侵入
+
+### 局限
+
+* 若无 `debug_meta`，只能做黑盒评测
+
+---
+
+## 7.2 Mode B：脚本模式
+
+通过本地命令执行目标 Agent。
+
+例如：
+
+```bash
+python run_agent.py --input-file tmp_case.json
+```
+
+### 适用场景
+
+* 未服务化的本地项目
+* CLI 驱动型 Agent
+
+---
+
+## 7.3 Mode C：本地适配器模式
+
+通过 Python / Node 适配器调用本地函数。
+
+### 适用场景
+
+* 单仓库开发
+* 本地开发效率优先
+* 需要更细粒度采集调试信息
+
+---
+
+# 8. 核心数据协议设计
+
+---
+
+## 8.1 配置文件 `eval.yaml`
+
+```yaml
+project:
+  name: my-agent
+  mode: http
+
+runner:
+  concurrency: 5
+  timeout_seconds: 60
+  retry_times: 1
+  fail_fast: false
+
+target:
+  http:
+    url: "http://localhost:8000/chat"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    payload_mapping:
+      query: "$.inputs.query"
+      user_id: "$.inputs.user_id"
+
+dataset:
+  paths:
+    - "cases/smoke.jsonl"
+    - "cases/rag.jsonl"
+
+evaluation:
+  llm_judge:
+    enabled: true
+    model: "gpt-4.1"
+  rule_assertions:
+    enabled: true
+
+cluster:
+  enabled: true
+  llm_summary: true
+
+artifacts:
+  root_dir: "./runs"
+  save_raw_response: true
+  save_debug_meta: true
+```
+
+---
+
+## 8.2 测试用例协议 `cases/*.jsonl`
+
+每行一个 case：
+
+```json
+{
+  "id": "rag_001",
+  "tags": ["rag", "pricing"],
+  "priority": "p1",
+  "inputs": {
+    "query": "请介绍产品套餐价格",
+    "user_id": "u001"
+  },
+  "context": {
+    "golden_docs": []
+  },
+  "assertions": [
+    {
+      "type": "llm_judge",
+      "metric": "correctness"
+    },
+    {
+      "type": "json_schema_match",
+      "target": "$.answer"
+    }
+  ],
+  "expected_execution": {
+    "expected_route": "knowledge_qa",
+    "must_call_tools": ["retriever.search"],
+    "forbid_tools": [],
+    "max_tool_calls": 3,
+    "min_retrieval_docs": 1
+  },
+  "evaluation_policy": {
+    "reruns": 1,
+    "pass_rule": "all"
+  }
+}
+```
+
+---
+
+## 8.3 原始执行结果协议 `raw_results.jsonl`
+
+```json
+{
+  "run_id": "2026-05-07_001",
+  "case_id": "rag_001",
+  "status": "success",
+  "latency_ms": 1450,
+  "request": {
+    "query": "请介绍产品套餐价格"
+  },
+  "response": {
+    "answer": "..."
+  },
+  "debug_meta": {
+    "route": "knowledge_qa",
+    "retrieval_used": true,
+    "retrieval_doc_count": 3,
+    "tool_calls": [
+      {
+        "name": "retriever.search",
+        "latency_ms": 120
+      }
+    ],
+    "fallback_used": false,
+    "error_code": ""
+  },
+  "error": null
+}
+```
+
+---
+
+## 8.4 评估结果协议 `eval_results.jsonl`
+
+```json
+{
+  "run_id": "2026-05-07_001",
+  "case_id": "rag_001",
+  "passed": false,
+  "assertion_results": [
+    {
+      "type": "llm_judge",
+      "metric": "correctness",
+      "passed": false,
+      "score": 0.42,
+      "reason": "回答未覆盖价格关键信息"
+    },
+    {
+      "type": "tool_call_check",
+      "passed": true
+    }
+  ],
+  "failure_signature": {
+    "assertion_type": "llm_judge",
+    "error_code": "insufficient_answer",
+    "route_name": "knowledge_qa",
+    "tool_name": ""
+  }
+}
+```
+
+---
+
+## 8.5 聚类结果协议 `clusters.json`
+
+```json
+{
+  "run_id": "2026-05-07_001",
+  "clusters": [
+    {
+      "cluster_id": "cluster_001",
+      "title": "价格问答答案覆盖不足",
+      "severity": "medium",
+      "case_ids": ["rag_001", "rag_008"],
+      "common_signature": {
+        "assertion_type": "llm_judge",
+        "error_code": "insufficient_answer"
+      },
+      "summary": "这些失败样例主要表现为回答不完整，未覆盖用户真正关注的套餐价格细节。",
+      "suspected_modules": ["prompt_templates/pricing.md", "answer_formatter.py"]
+    }
+  ]
+}
+```
+
+---
+
+## 8.6 调优输入协议 `repair_input.json`
+
+```json
+{
+  "run_id": "2026-05-07_001",
+  "project": "my-agent",
+  "clusters": [
+    {
+      "cluster_id": "cluster_001",
+      "title": "价格问答答案覆盖不足",
+      "severity": "medium",
+      "cases": ["rag_001", "rag_008"],
+      "common_signature": {
+        "assertion_type": "llm_judge",
+        "error_code": "insufficient_answer"
+      },
+      "suspected_modules": ["prompt_templates/pricing.md", "answer_formatter.py"],
+      "evidence": [
+        {
+          "case_id": "rag_001",
+          "reason": "回答未覆盖价格关键信息"
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+# 9. 最小调试现场协议 `debug_meta`
+
+这是 local-first 方案的关键设计点。
+
+## 9.1 目标
+
+在不引入 Langfuse 的前提下，为失败分析与聚类提供最小必要执行上下文。
+
+## 9.2 推荐字段
+
+```json
+{
+  "route": "knowledge_qa",
+  "retrieval_used": true,
+  "retrieval_doc_count": 3,
+  "tool_calls": [
+    {
+      "name": "retriever.search",
+      "latency_ms": 120
+    }
+  ],
+  "fallback_used": false,
+  "prompt_version": "v12",
+  "config_version": "2026-05-07",
+  "error_code": ""
+}
+```
+
+## 9.3 原则
+
+* 仅记录必要字段
+* 尽量避免泄露敏感信息
+* 优先记录结构化信息
+* 避免记录完整 prompt 和全部中间上下文，除非明确配置允许
+
+---
+
+# 10. 评估体系设计
+
+---
+
+## 10.1 评估类型总览
+
+### A. 硬断言
+
+适合确定性场景。
+
+支持：
+
+* HTTP 状态码检查
+* JSON Schema 校验
+* JSONPath 字段存在性检查
+* Exact Match
+* Contains
+* 数值阈值判断
+
+### B. 语义评估
+
+适合自然语言质量判断。
+
+基于 DeepEval 完成：
+
+* Correctness
+* Relevance
+* Faithfulness
+* Completeness
+* 自定义 LLM Judge Metric
+
+### C. 执行语义评估
+
+基于 `debug_meta` 与 `expected_execution` 完成。
+
+支持：
+
+* expected_route
+* must_call_tools
+* forbid_tools
+* max_tool_calls
+* min_retrieval_docs
+* fallback_used 是否符合预期
+
+---
+
+## 10.2 评估执行顺序
+
+建议固定为：
+
+1. 硬断言
+2. 执行语义评估
+3. 语义评估
+
+这样可以优先发现最确定的问题。
+
+---
+
+## 10.3 通过判定规则
+
+支持：
+
+* 全部通过
+* 任一通过
+* 加权判定
+* 多轮 rerun 后多数通过
+
+---
+
+# 11. 失败聚类设计
+
+---
+
+## 11.1 聚类目标
+
+将离散失败样例归纳为少量高价值问题簇，降低人工分析成本。
+
+## 11.2 聚类流程
+
+### 第一步：提取 failure signature
+
+从失败样例中提取：
+
+* assertion_type
+* error_code
+* tool_name
+* route_name
+* tag
+* priority
+
+### 第二步：规则聚类
+
+按 signature 进行稳定归并。
+
+### 第三步：LLM 总结
+
+可选调用 LLM：
+
+* 命名 cluster
+* 总结共性
+* 生成高层怀疑根因
+
+---
+
+## 11.3 失败签名示例
+
+```json
+{
+  "assertion_type": "tool_call_check",
+  "error_code": "tool_not_called",
+  "tool_name": "retriever.search",
+  "route_name": "knowledge_qa"
+}
+```
+
+---
+
+# 12. 报告系统设计
+
+---
+
+## 12.1 控制台输出
+
+执行完成后在终端打印：
+
+* 总 case 数
+* 通过率
+* 失败数
+* Top 失败簇
+* 运行目录
+
+## 12.2 Markdown 汇总报告 `summary.md`
+
+建议包含：
+
+1. 本次运行摘要
+2. 通过率统计
+3. 按 tags 统计
+4. Top failure clusters
+5. 每个 cluster 的典型样例
+6. 怀疑根因
+7. 建议排查模块
+
+## 12.3 JSON 结果
+
+输出：
+
+* `raw_results.jsonl`
+* `eval_results.jsonl`
+* `failures.jsonl`
+* `clusters.json`
+* `repair_input.json`
+
+---
+
+# 13. 本地目录结构设计
+
+```text
+agent-eval/
+  eval.yaml
+  cases/
+    smoke.jsonl
+    rag.jsonl
+  runs/
+    2026-05-07_001/
+      manifest.json
+      raw_results.jsonl
+      eval_results.jsonl
+      failures.jsonl
+      clusters.json
+      summary.md
+      repair_input.json
+  reports/
+    latest.md
+```
+
+## 13.1 目录说明
+
+* `cases/`：测试集
+* `runs/`：每次运行的完整产物
+* `reports/`：快捷引用的最新报告
+* `eval.yaml`：全局配置
+
+---
+
+# 14. CLI 命令设计
+
+---
+
+## 14.1 `agent-eval init`
+
+初始化项目目录与模板文件。
+
+### 输出
+
+* `eval.yaml`
+* `cases/sample.jsonl`
+* 目录结构
+
+---
+
+## 14.2 `agent-eval run`
+
+执行完整批量评测流程。
+
+### 行为
+
+* 读取配置
+* 加载测试集
+* 调用 Agent
+* 评估结果
+* 聚类失败
+* 生成报告
+
+### 常用参数
+
+```bash
+agent-eval run --dataset cases/rag.jsonl
+agent-eval run --run-name exp_001
+agent-eval run --concurrency 10
+```
+
+---
+
+## 14.3 `agent-eval inspect`
+
+查看某次 run / 某个 case / 某个 cluster 的详情。
+
+### 示例
+
+```bash
+agent-eval inspect --run latest
+agent-eval inspect --run 2026-05-07_001 --cluster cluster_001
+agent-eval inspect --run 2026-05-07_001 --case rag_001
+```
+
+---
+
+## 14.4 `agent-eval export`
+
+导出后续调优使用的结构化输入。
+
+### 示例
+
+```bash
+agent-eval export --run latest
+```
+
+---
+
+# 15. Claude Code 协作定位
+
+---
+
+## 15.1 当前版本中的角色
+
+Claude Code 不作为产品核心运行时，只作为后续协作工具预留。
+
+### 职责一：项目适配改造助手
+
+帮助原始 Agent 项目：
+
+* 增加 `debug_meta`
+* 生成 `eval.yaml`
+* 生成本地适配器
+* 生成脚本入口
+* 规范输出结构
+
+### 职责二：后续调优执行器
+
+在未来独立调优服务中读取：
+
+* `summary.md`
+* `clusters.json`
+* `repair_input.json`
+
+再做：
+
+* 代码修改
+* Prompt 调整
+* 回归验证
+
+---
+
+## 15.2 不承担的职责
+
+在当前版本中，Claude Code 不负责：
+
+* 主测试执行
+* 主评估逻辑
+* 主聚类逻辑
+* 主报告逻辑
+
+---
+
+# 16. 技术选型建议
+
+---
+
+## 16.1 主实现语言
+
+建议使用 **Python**。
+
+### 原因
+
+* DeepEval 原生位于 Python 生态
+* JSONL / YAML / 报告处理方便
+* CLI 开发成熟
+* 便于未来与 Claude Code 协作脚本集成
+
+## 16.2 推荐技术栈
+
+* CLI：Typer / Click
+* 配置：PyYAML
+* 数据协议：Pydantic
+* 并发执行：asyncio / httpx
+* 评估：DeepEval
+* 模板渲染：Jinja2
+* 报告输出：Markdown 生成
+* 测试：pytest
+
+---
+
+# 17. 非功能需求
+
+---
+
+## 17.1 可复现性
+
+每次运行必须记录：
+
+* run_id
+* 时间戳
+* 配置快照
+* 数据集路径
+* 模型配置
+* 工具版本
+
+## 17.2 本地可调试性
+
+所有中间产物可直接打开查看，不依赖外部平台。
+
+## 17.3 安全性
+
+* 默认不记录敏感凭证
+* 默认不记录完整 prompt 与敏感上下文
+* 支持脱敏输出
+
+## 17.4 性能
+
+* 支持小规模并发
+* 单机可运行
+* 不依赖数据库
+
+## 17.5 扩展性
+
+后续可增加：
+
+* 历史 run 对比
+* CI 集成
+* Claude Code bootstrap
+* Claude Code 调优插件
+
+---
+
+# 18. 版本规划建议
+
+---
+
+## V1
+
+聚焦：
+
+* init
+* run
+* inspect
+* export
+* 本地文件落盘
+* 混合评估
+* 失败聚类
+* 报告生成
+
+## V1.5
+
+增加：
+
+* 多 run 对比
+* 更细粒度 failure signature
+* 更丰富的执行语义断言
+* 更好的 cluster 命名
+
+## V2
+
+独立引入：
+
+* Claude Code bootstrap
+* Claude Code 调优执行流
+* 局部回归测试协同
+
+---
+
+# 19. 最终产品定义
+
+**Agent-Eval-CLI 是一个完全 local-first 的 Agent 批量评测与异常分析命令行工具。**
+它基于本地测试集和配置批量执行 Agent，采集最小可复原执行现场，对结果进行混合评估、失败聚类和报告生成，并输出适合后续 Claude Code 进行项目适配改造与持续调优的结构化分析结果。
+
