@@ -1,0 +1,43 @@
+project:
+  name: sample-agent
+  mode: script
+
+runner:
+  concurrency: 1
+  timeout_seconds: 10
+  retry_times: 0
+  fail_fast: false
+
+target:
+  script:
+    command: "python sample_agent.py --input-file {input_file}"
+  http:
+    url: "http://localhost:8000/chat"
+    method: "POST"
+    headers:
+      Content-Type: "application/json"
+    payload_mapping:
+      query: "$.inputs.query"
+
+dataset:
+  paths:
+    - "cases/sample.jsonl"
+
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+    model: stub
+    stub_result: skipped
+  rule_assertions:
+    enabled: true
+
+cluster:
+  enabled: true
+  llm_summary: false
+
+artifacts:
+  root_dir: "./runs"
+  save_raw_response: true
+  save_debug_meta: true
+  reports_dir: "./reports"
