@@ -74,8 +74,32 @@ def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failur
             failure = failures_by_case.get(case_id)
             if failure:
                 evidence.append({"case_id": case_id, "reason": "; ".join(failure.reasons)})
-        repair_clusters.append(RepairCluster(cluster_id=cluster.cluster_id, title=cluster.title, severity=cluster.severity, cases=cluster.case_ids, common_signature=cluster.common_signature, suspected_modules=cluster.suspected_modules, evidence=evidence))
-    return RepairInput(run_id=run_id, project=project, clusters=repair_clusters, artifacts={"run_dir": f"runs/{run_id}"})
+        signature = cluster.common_signature or {}
+        analysis = {
+            "representative_cases": cluster.case_ids[:3],
+            "signature_explanation": cluster.summary,
+        }
+        if isinstance(signature.get("analysis"), dict):
+            analysis.update(signature["analysis"])
+        repair_clusters.append(
+            RepairCluster(
+                cluster_id=cluster.cluster_id,
+                title=cluster.title,
+                severity=cluster.severity,
+                cases=cluster.case_ids,
+                common_signature=cluster.common_signature,
+                suspected_modules=cluster.suspected_modules,
+                evidence=evidence,
+                analysis=analysis,
+            )
+        )
+    return RepairInput(
+        run_id=run_id,
+        project=project,
+        clusters=repair_clusters,
+        artifacts={"run_dir": f"runs/{run_id}"},
+        analysis={"cluster_count": len(repair_clusters)},
+    )
 
 
 def resolve_run(root: Path, run: str, runs_dir: str = "./runs") -> Path:

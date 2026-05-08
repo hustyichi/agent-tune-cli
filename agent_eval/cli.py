@@ -9,6 +9,7 @@ import typer
 
 from .artifacts import ArtifactStore
 from .clustering import cluster_failures, make_failures
+from .comparison import compare_runs, comparison_summary
 from .config import load_config
 from .dataset import load_cases
 from .evaluators import evaluate_case
@@ -96,6 +97,25 @@ def inspect(run: str = typer.Option("latest", "--run"), case: Optional[str] = ty
     except (FileNotFoundError, ValueError) as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(1) from exc
+
+
+@app.command()
+def compare(
+    base: str = typer.Option(..., "--base", help="Base run id, or latest."),
+    target: str = typer.Option(..., "--target", help="Target run id, or latest."),
+    output: Optional[Path] = typer.Option(None, "--output", help="Write machine-readable comparison JSON to this path."),
+    show: bool = typer.Option(False, "--show", help="Print machine-readable JSON instead of a human summary."),
+) -> None:
+    """Compare two local runs."""
+    try:
+        comparison = compare_runs(Path("."), base, target)
+    except (FileNotFoundError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
+    data = comparison.model_dump_json(indent=2) + "\n"
+    if output is not None:
+        output.write_text(data)
+    typer.echo(data if show else comparison_summary(comparison))
 
 
 @app.command("export")

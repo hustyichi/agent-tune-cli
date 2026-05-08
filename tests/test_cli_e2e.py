@@ -256,3 +256,26 @@ def test_script_command_secret_redacted_from_manifest_and_raw(tmp_path: Path):
     combined = "\n".join(p.read_text() for p in (tmp_path / "runs" / run_id).iterdir() if p.is_file())
     assert "sk-live-abc123" not in combined
     assert "[REDACTED]" in combined
+
+
+def test_compare_generated_runs_e2e(tmp_path: Path):
+    run_cli(tmp_path, "init")
+    run_cli(tmp_path, "run", "--run-name", "baseline")
+    sample = tmp_path / "cases" / "sample.jsonl"
+    sample.write_text(sample.read_text().replace("no retrieval please", "route knowledge pricing"))
+    run_cli(tmp_path, "run", "--run-name", "target")
+
+    shown = run_cli(tmp_path, "compare", "--base", "baseline", "--target", "target", "--show")
+    comparison = json.loads(shown.stdout)
+    assert comparison["base_run_id"] == "baseline"
+    assert comparison["target_run_id"] == "target"
+    assert comparison["cluster_key_version"] == "v1"
+    transitions = {item["case_id"]: item["transition"] for item in comparison["case_transitions"]}
+    assert transitions["sample_fail"] == "failed_to_passed"
+    assert comparison["totals"]["pass_rate_delta"] > 0
+
+    out = tmp_path / "comparison.json"
+    default = run_cli(tmp_path, "compare", "--base", "baseline", "--target", "target", "--output", str(out))
+    assert "baseline -> target" in default.stdout
+    assert out.exists()
+    assert json.loads(out.read_text())["cluster_key_version"] == "v1"

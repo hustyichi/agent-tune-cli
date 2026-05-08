@@ -164,6 +164,12 @@ class FailureSignature(BaseModel):
     tool_name: str = ""
     tag: str = ""
     priority: str = ""
+    metric: str | None = None
+    assertion_reason_code: str | None = None
+    expected_summary: str | None = None
+    actual_summary: str | None = None
+    case_tags: list[str] = Field(default_factory=list)
+    debug_flags: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvalResult(BaseModel):
@@ -222,6 +228,7 @@ class RepairCluster(BaseModel):
     common_signature: dict[str, Any]
     suspected_modules: list[str] = Field(default_factory=list)
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+    analysis: dict[str, Any] = Field(default_factory=dict)
 
 
 class RepairInput(BaseModel):
@@ -230,3 +237,42 @@ class RepairInput(BaseModel):
     project: str
     clusters: list[RepairCluster] = Field(default_factory=list)
     artifacts: dict[str, str] = Field(default_factory=dict)
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, Any] = Field(default_factory=dict)
+
+
+class ComparisonTotals(BaseModel):
+    base_total: int
+    base_passed: int
+    base_failed: int
+    base_pass_rate: float
+    target_total: int
+    target_passed: int
+    target_failed: int
+    target_pass_rate: float
+    pass_rate_delta: float
+
+
+class CaseTransition(BaseModel):
+    case_id: str
+    base_passed: bool | None = None
+    target_passed: bool | None = None
+    transition: Literal["passed_to_failed", "failed_to_passed", "unchanged_pass", "unchanged_fail", "added", "removed"]
+
+
+class ClusterTransitions(BaseModel):
+    added: list[str] = Field(default_factory=list)
+    removed: list[str] = Field(default_factory=list)
+    persisted: list[str] = Field(default_factory=list)
+
+
+class RunComparison(BaseModel):
+    protocol_version: str = PROTOCOL_VERSION
+    base_run_id: str
+    target_run_id: str
+    cluster_key_version: str = "v1"
+    totals: ComparisonTotals
+    case_transitions: list[CaseTransition] = Field(default_factory=list)
+    cluster_transitions: ClusterTransitions
+    analysis: dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, Any] = Field(default_factory=dict)

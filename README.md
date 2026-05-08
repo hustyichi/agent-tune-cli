@@ -9,6 +9,7 @@ This repository currently implements the MVP described in `docs/prd.md` and plan
 - `agent-eval init` — create a local evaluation project with `eval.yaml`, sample cases, `runs/`, `reports/`, and a sample script target.
 - `agent-eval run` — execute cases against a script or HTTP target, evaluate assertions, cluster failures, and write local artifacts.
 - `agent-eval inspect` — inspect a run, case, or cluster from local files.
+- `agent-eval compare` — compare two local runs and report pass-rate, case-transition, and cluster-transition deltas.
 - `agent-eval export` — locate or print `repair_input.json` for downstream tuning tools.
 
 Default generated projects run fully offline. LLM judging is represented as an optional provider boundary and defaults to a stub/disabled configuration; no API key or live LLM call is required for the sample workflow or tests.
@@ -27,6 +28,7 @@ cd /tmp/agent-eval-demo
 agent-eval init
 agent-eval run
 agent-eval inspect --run latest
+agent-eval compare --base latest --target latest
 agent-eval export --run latest
 ```
 
@@ -40,6 +42,21 @@ A run writes:
 - `runs/<run_id>/summary.md`
 - `runs/<run_id>/repair_input.json`
 - `reports/latest.md`
+
+
+## Run comparison
+
+V1.5 adds deterministic local run comparison without changing the normal `run` artifact contract:
+
+```bash
+agent-eval compare --base baseline --target target
+agent-eval compare --base baseline --target target --show
+agent-eval compare --base baseline --target target --output comparison.json
+```
+
+Default output is a concise human summary. `--show` prints machine-readable JSON, and `--output` writes that JSON to a requested path. Comparison output includes `cluster_key_version: "v1"`, pass-rate deltas, per-case transitions, and added/removed/persisted cluster IDs. Normal `agent-eval run` does not write comparison artifacts.
+
+Failure signatures and repair input are enriched with optional, namespaced analysis fields while preserving existing fields for downstream compatibility. Cluster IDs keep the V1 grouping identity; richer signature fields improve titles and summaries but do not change the hash key.
 
 ## Target modes
 
