@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -18,22 +19,38 @@ class ScriptRunner(BaseRunner):
         self.cwd = cwd
         self.timeout = timeout
 
+    def _run_command(self, args: list[str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            args,
+            shell=False,
+            cwd=self.cwd,
+            text=True,
+            capture_output=True,
+            timeout=self.timeout,
+        )
+
     def run_once(self, case: EvalCase, run_id: str) -> RawResult:
         start = time.perf_counter()
         case_payload = case.model_dump(mode="json")
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tmp:
             json.dump(case_payload, tmp, ensure_ascii=False)
             input_file = Path(tmp.name)
-        command = self.command.format(input_file=str(input_file))
+        command = self.command.format(input_file=str(input_file), python=sys.executable)
+        args = shlex.split(command)
         try:
-            proc = subprocess.run(
-                shlex.split(command),
-                shell=False,
-                cwd=self.cwd,
-                text=True,
-                capture_output=True,
-                timeout=self.timeout,
-            )
+            proc = self._run_command(args)
+        except FileNotFoundError as exc:
+            if args and args[0] == "python":
+                args = [sys.executable, *args[1:]]
+                command = shlex.join(args)
+                try:
+                    proc = self._run_command(args)
+                except FileNotFoundError as fallback_exc:
+                    input_file.unlink(missing_ok=True)
+                    return error_result(run_id, case, "error", start, str(fallback_exc), "process")
+            else:
+                input_file.unlink(missing_ok=True)
+                return error_result(run_id, case, "error", start, str(exc), "process")
         except subprocess.TimeoutExpired as exc:
             input_file.unlink(missing_ok=True)
             return error_result(run_id, case, "timeout", start, f"Script timed out after {self.timeout}s", "timeout", stderr=redact_text(exc.stderr))

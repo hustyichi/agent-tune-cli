@@ -28,7 +28,7 @@ class HttpTargetConfig(BaseModel):
 
 
 class ScriptTargetConfig(BaseModel):
-    command: str = "python sample_agent.py --input-file {input_file}"
+    command: str = "{python} sample_agent.py --input-file {input_file}"
 
 
 class TargetConfig(BaseModel):
@@ -42,9 +42,10 @@ class DatasetConfig(BaseModel):
 
 class LlmJudgeConfig(BaseModel):
     enabled: bool = False
-    provider: str = "stub"
+    provider: Literal["stub", "deepeval"] = "stub"
     model: str = "stub"
     stub_result: Literal["skipped", "pass", "fail"] = "skipped"
+    threshold: float = 0.5
 
 
 class EvaluationConfig(BaseModel):
@@ -82,6 +83,7 @@ class AssertionSpec(BaseModel):
     expected: Any = None
     value: Any = None
     metric: str | None = None
+    op: str | None = None
     contains: Any = None
     schema_spec: dict[str, Any] | None = Field(default=None, alias="schema")
 

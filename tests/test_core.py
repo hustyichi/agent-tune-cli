@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import importlib
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -199,3 +199,227 @@ def test_http_timeout_and_retry(monkeypatch, tmp_path: Path):
     assert result.attempt_count == 2
     assert "sk-live-abc123" not in dumped
     assert "[REDACTED]" in dumped
+
+from agent_eval.models import LlmJudgeConfig
+
+
+def test_llm_judge_deepeval_provider_uses_mapping_and_redacts_reason(monkeypatch):
+    import types
+
+    calls = {}
+
+    class FakeTestCase:
+        def __init__(self, *, input, actual_output):  # noqa: A002 - match DeepEval API
+            calls["test_case"] = {"input": input, "actual_output": actual_output}
+
+    class FakeMetric:
+        def __init__(self, *, threshold, model, include_reason):
+            calls["metric"] = {"threshold": threshold, "model": model, "include_reason": include_reason}
+            self.score = 0.82
+            self.reason = "looks relevant but saw sk-live-secret-123"
+
+        def measure(self, test_case):
+            calls["measured"] = test_case
+
+    deepeval_mod = types.ModuleType("deepeval")
+    metrics_mod = types.ModuleType("deepeval.metrics")
+    metrics_mod.AnswerRelevancyMetric = FakeMetric
+    test_case_mod = types.ModuleType("deepeval.test_case")
+    test_case_mod.LLMTestCase = FakeTestCase
+    monkeypatch.setitem(sys.modules, "deepeval", deepeval_mod)
+    monkeypatch.setitem(sys.modules, "deepeval.metrics", metrics_mod)
+    monkeypatch.setitem(sys.modules, "deepeval.test_case", test_case_mod)
+
+    case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing?"}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": "pricing is available"})
+    cfg = LlmJudgeConfig.model_validate({"enabled": True, "provider": "deepeval", "model": "gpt-test", "threshold": 0.7})
+
+    result = evaluate_case("r1", case, raw, cfg)
+    llm = next(r for r in result.assertion_results if r.type == "llm_judge")
+
+    assert result.passed is True
+    assert llm.score == 0.82
+    assert "sk-live-secret-123" not in llm.reason
+    assert "[REDACTED]" in llm.reason
+    assert calls["test_case"] == {"input": "pricing?", "actual_output": "pricing is available"}
+    assert calls["metric"] == {"threshold": 0.7, "model": "gpt-test", "include_reason": True}
+    assert "measured" in calls
+
+
+def test_llm_judge_disabled_deepeval_provider_does_not_import(monkeypatch):
+    def fail_import(name, *args, **kwargs):
+        if name.startswith("deepeval"):
+            raise AssertionError("deepeval should not be imported when llm_judge is disabled")
+        return importlib.import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr("agent_eval.evaluators.llm_judge.importlib.import_module", fail_import)
+    case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing?"}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": "pricing is available"})
+    cfg = LlmJudgeConfig.model_validate({"enabled": False, "provider": "deepeval", "model": "gpt-test"})
+
+    result = evaluate_case("r1", case, raw, cfg)
+    llm = next(r for r in result.assertion_results if r.type == "llm_judge")
+
+    assert result.passed is True
+    assert llm.skipped is True
+
+
+def test_llm_judge_deepeval_missing_dependency_is_failed_assertion(monkeypatch):
+    def missing_import(name, *args, **kwargs):
+        if name.startswith("deepeval"):
+            raise ModuleNotFoundError("No module named 'deepeval'", name="deepeval")
+        return importlib.import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr("agent_eval.evaluators.llm_judge.importlib.import_module", missing_import)
+    case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing?"}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": "pricing is available"})
+    cfg = LlmJudgeConfig.model_validate({"enabled": True, "provider": "deepeval", "model": "gpt-test"})
+
+    result = evaluate_case("r1", case, raw, cfg)
+    llm = next(r for r in result.assertion_results if r.type == "llm_judge")
+
+    assert result.passed is False
+    assert llm.passed is False
+    assert "deepeval" in llm.reason.lower()
+    assert "not implemented" not in llm.reason.lower()
+
+
+def test_llm_judge_unsupported_metric_fails_clearly():
+    case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing?"}, "assertions": [{"type": "llm_judge", "metric": "faithfulness"}]})
+    raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": "pricing is available"})
+    cfg = LlmJudgeConfig.model_validate({"enabled": True, "provider": "deepeval", "model": "gpt-test"})
+
+    result = evaluate_case("r1", case, raw, cfg)
+    llm = next(r for r in result.assertion_results if r.type == "llm_judge")
+
+    assert result.passed is False
+    assert "unsupported llm_judge metric" in llm.reason
+
+
+def test_rule_evaluator_http_status_numeric_and_schema_subset():
+    cfg = load_config(Path("does-not-exist.yaml"))
+    raw = RawResult(
+        run_id="r1",
+        case_id="rules",
+        status="success",
+        latency_ms=1,
+        request={},
+        response={"answer": "ok", "score": 0.91},
+        metadata={"status_code": 200},
+    )
+    passing = EvalCase.model_validate(
+        {
+            "id": "rules",
+            "assertions": [
+                {"type": "http_status", "expected": 200},
+                {"type": "numeric_threshold", "target": "$.score", "op": "gte", "expected": 0.9},
+                {"type": "json_schema_match", "target": "$", "schema": {"answer": "string", "score": "number"}},
+            ],
+        }
+    )
+    passed = evaluate_case("r1", passing, raw, cfg.evaluation.llm_judge)
+    assert passed.passed is True
+
+    failing = EvalCase.model_validate(
+        {
+            "id": "rules",
+            "assertions": [
+                {"type": "http_status", "expected": 201},
+                {"type": "numeric_threshold", "target": "$.score", "op": "lt", "expected": 0.9},
+                {"type": "json_schema_match", "target": "$", "schema": {"answer": "string", "score": "string"}},
+            ],
+        }
+    )
+    failed = evaluate_case("r1", failing, raw, cfg.evaluation.llm_judge)
+    assert failed.passed is False
+    assert {r.type for r in failed.assertion_results if not r.passed} == {"http_status", "numeric_threshold", "json_schema_match"}
+
+
+def test_llm_judge_deepeval_mapping_preserves_falsy_and_uses_redacted_json_fallback(monkeypatch):
+    import types
+
+    calls = []
+
+    class FakeTestCase:
+        def __init__(self, *, input, actual_output):  # noqa: A002 - match DeepEval API
+            calls.append({"input": input, "actual_output": actual_output})
+
+    class FakeMetric:
+        def __init__(self, *, threshold, model, include_reason):
+            self.score = 1.0
+            self.reason = "ok"
+
+        def measure(self, test_case):
+            return None
+
+    metrics_mod = types.ModuleType("deepeval.metrics")
+    metrics_mod.AnswerRelevancyMetric = FakeMetric
+    test_case_mod = types.ModuleType("deepeval.test_case")
+    test_case_mod.LLMTestCase = FakeTestCase
+    monkeypatch.setitem(sys.modules, "deepeval", types.ModuleType("deepeval"))
+    monkeypatch.setitem(sys.modules, "deepeval.metrics", metrics_mod)
+    monkeypatch.setitem(sys.modules, "deepeval.test_case", test_case_mod)
+
+    cfg = LlmJudgeConfig.model_validate({"enabled": True, "provider": "deepeval", "model": "gpt-test"})
+    assertion_case = {"id": "llm", "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]}
+
+    for value in (0, False):
+        case = EvalCase.model_validate({**assertion_case, "inputs": {"query": "q"}})
+        raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": value})
+        result = evaluate_case("r1", case, raw, cfg)
+        assert result.passed is True
+
+    fallback_case = EvalCase.model_validate({**assertion_case, "inputs": {"api_key": "sk-live-secret-123", "topic": "pricing"}})
+    fallback_raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"token": "sk-live-secret-456", "result": "ok"})
+    result = evaluate_case("r1", fallback_case, fallback_raw, cfg)
+    assert result.passed is True
+
+    assert calls[0]["actual_output"] == "0"
+    assert calls[1]["actual_output"] == "False"
+    assert "sk-live-secret" not in calls[2]["input"]
+    assert "sk-live-secret" not in calls[2]["actual_output"]
+    assert "[REDACTED]" in calls[2]["input"]
+    assert "[REDACTED]" in calls[2]["actual_output"]
+
+
+def test_llm_judge_deepeval_empty_mapping_and_provider_exception_are_safe(monkeypatch):
+    import types
+
+    class RaisingTestCase:
+        def __init__(self, *, input, actual_output):  # noqa: A002 - match DeepEval API
+            pass
+
+    class RaisingMetric:
+        def __init__(self, *, threshold, model, include_reason):
+            pass
+
+        def measure(self, test_case):
+            raise RuntimeError("provider leaked sk-live-secret-789")
+
+    metrics_mod = types.ModuleType("deepeval.metrics")
+    metrics_mod.AnswerRelevancyMetric = RaisingMetric
+    test_case_mod = types.ModuleType("deepeval.test_case")
+    test_case_mod.LLMTestCase = RaisingTestCase
+    monkeypatch.setitem(sys.modules, "deepeval", types.ModuleType("deepeval"))
+    monkeypatch.setitem(sys.modules, "deepeval.metrics", metrics_mod)
+    monkeypatch.setitem(sys.modules, "deepeval.test_case", test_case_mod)
+
+    cfg = LlmJudgeConfig.model_validate({"enabled": True, "provider": "deepeval", "model": "gpt-test"})
+    empty_case = EvalCase.model_validate({"id": "llm", "inputs": {"query": ""}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": "ok"})
+    empty = evaluate_case("r1", empty_case, raw, cfg)
+    assert empty.passed is False
+    assert "input is empty" in empty.assertion_results[0].reason
+
+    empty_output_case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing"}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    empty_output_raw = RawResult(run_id="r1", case_id="llm", status="success", latency_ms=1, request={}, response={"answer": ""})
+    empty_output = evaluate_case("r1", empty_output_case, empty_output_raw, cfg)
+    assert empty_output.passed is False
+    assert "actual_output is empty" in empty_output.assertion_results[0].reason
+
+    case = EvalCase.model_validate({"id": "llm", "inputs": {"query": "pricing"}, "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
+    provider_error = evaluate_case("r1", case, raw, cfg)
+    llm = provider_error.assertion_results[0]
+    assert provider_error.passed is False
+    assert "sk-live-secret-789" not in llm.reason
+    assert "[REDACTED]" in llm.reason

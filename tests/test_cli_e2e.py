@@ -246,7 +246,7 @@ def test_export_inspect_reject_run_traversal(tmp_path: Path):
 def test_script_command_secret_redacted_from_manifest_and_raw(tmp_path: Path):
     run_cli(tmp_path, "init")
     cfg = (tmp_path / "eval.yaml").read_text()
-    cfg = cfg.replace("python sample_agent.py --input-file {input_file}", "python sample_agent.py --api-key sk-live-abc123 --input-file {input_file}")
+    cfg = cfg.replace("{python} sample_agent.py --input-file {input_file}", "{python} sample_agent.py --api-key sk-live-abc123 --input-file {input_file}")
     # Make sample agent tolerate the extra arg.
     agent = (tmp_path / "sample_agent.py").read_text().replace('parser.add_argument("--input-file", required=True)', 'parser.add_argument("--api-key", required=False)\nparser.add_argument("--input-file", required=True)')
     (tmp_path / "eval.yaml").write_text(cfg)
@@ -279,3 +279,17 @@ def test_compare_generated_runs_e2e(tmp_path: Path):
     assert "baseline -> target" in default.stdout
     assert out.exists()
     assert json.loads(out.read_text())["cluster_key_version"] == "v1"
+
+
+def test_generated_project_runs_without_python_on_path(tmp_path: Path):
+    run_cli(tmp_path, "init")
+    no_python_bin = tmp_path / "no-python-bin"
+    no_python_bin.mkdir()
+    env = os.environ.copy()
+    repo = Path(__file__).resolve().parents[1]
+    env["PYTHONPATH"] = str(repo) + os.pathsep + env.get("PYTHONPATH", "")
+    env["PATH"] = str(no_python_bin)
+
+    proc = subprocess.run([sys.executable, "-m", "agent_eval", "run"], cwd=tmp_path, text=True, capture_output=True, env=env, check=True)
+
+    assert "total=2" in proc.stdout

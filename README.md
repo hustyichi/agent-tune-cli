@@ -12,12 +12,12 @@ This repository currently implements the MVP described in `docs/prd.md` and plan
 - `agent-eval compare` — compare two local runs and report pass-rate, case-transition, and cluster-transition deltas.
 - `agent-eval export` — locate or print `repair_input.json` for downstream tuning tools.
 
-Default generated projects run fully offline. LLM judging is represented as an optional provider boundary and defaults to a stub/disabled configuration; no API key or live LLM call is required for the sample workflow or tests.
+Default generated projects run fully offline. LLM judging defaults to a stub/disabled configuration; no API key, DeepEval install, or live LLM call is required for the sample workflow or tests. V1 also supports opt-in DeepEval judging for `answer_relevancy` when installed and explicitly enabled.
 
 ## Install for development
 
 ```bash
-python -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev]'
 ```
 
 ## Quick start
@@ -69,7 +69,7 @@ project:
   mode: script
 target:
   script:
-    command: "python sample_agent.py --input-file {input_file}"
+    command: "{python} sample_agent.py --input-file {input_file}"
 ```
 
 The script receives a temporary case JSON file. It should print JSON to stdout, either:
@@ -90,12 +90,34 @@ If a JSON response contains `debug_meta`, Agent-Eval uses it for execution-seman
 
 MVP deterministic assertions include:
 
-- `field_exists` / `jsonpath_exists` / `json_schema_match`
+- `field_exists` / `jsonpath_exists`
+- `json_schema_match` / `schema_keys` for the documented object-key/type subset
 - `contains`
 - `exact_match`
-- `schema_keys`
+- `http_status`
+- `numeric_threshold` with `gt` / `gte` / `lt` / `lte` / `eq`
 - execution checks from `expected_execution` such as `expected_route`, `must_call_tools`, `forbid_tools`, `max_tool_calls`, and `min_retrieval_docs`
-- `llm_judge` as an offline stub by default
+- `llm_judge` as an offline stub by default, plus opt-in `provider: deepeval` for `answer_relevancy`
+
+
+## Opt-in DeepEval judging
+
+DeepEval support is optional and lazy-loaded. Install the optional extra and enable it explicitly:
+
+```bash
+python3 -m pip install -e '.[deepeval]'
+```
+
+```yaml
+evaluation:
+  llm_judge:
+    enabled: true
+    provider: deepeval
+    model: gpt-4.1
+    threshold: 0.7
+```
+
+V1 supports `llm_judge` metric `answer_relevancy`. The evaluator maps `inputs.query` to DeepEval `input` and `response.answer` to `actual_output`; if those fields are absent it falls back to redacted stable JSON.
 
 ## Privacy defaults
 
@@ -109,10 +131,11 @@ Artifacts are local files. Before writing request/response/debug/error/report da
 - No mandatory Claude Code runtime dependency
 - No complete local adapter mode in this MVP
 - No mandatory live LLM or DeepEval call in default workflows
+- No LLM cluster naming/summary or full deep report in V1
 
 ## Verification
 
 ```bash
-python -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev]'
 pytest
 ```

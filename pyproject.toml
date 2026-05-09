@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+deepeval = ["deepeval>=2.0"]
 
 [project.scripts]
 agent-eval = "agent_eval.cli:app"

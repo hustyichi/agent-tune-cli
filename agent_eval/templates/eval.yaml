@@ -10,7 +10,7 @@ runner:
 
 target:
   script:
-    command: "python sample_agent.py --input-file {input_file}"
+    command: "{python} sample_agent.py --input-file {input_file}"
   http:
     url: "http://localhost:8000/chat"
     method: "POST"

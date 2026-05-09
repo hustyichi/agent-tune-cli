@@ -5,7 +5,7 @@ from typing import Any
 
 from agent_eval.evaluators.base import decide_pass
 from agent_eval.evaluators.execution import ExecutionEvaluator
-from agent_eval.evaluators.llm_stub import LlmStubEvaluator
+from agent_eval.evaluators.llm_judge import LlmJudgeEvaluator
 from agent_eval.evaluators.rule import RuleEvaluator
 from agent_eval.models import EvalCase, EvalResult, FailureSignature, RawResult
 from agent_eval.utils.jsonpath import get_path
@@ -16,7 +16,7 @@ def evaluate_case(run_id: str, case: EvalCase, raw: RawResult, llm_config) -> Ev
     results = []
     results.extend(RuleEvaluator().evaluate(case, raw))
     results.extend(ExecutionEvaluator().evaluate(case, raw))
-    results.extend(LlmStubEvaluator(llm_config).evaluate(case, raw))
+    results.extend(LlmJudgeEvaluator(llm_config).evaluate(case, raw))
     passed = raw.status == "success" and decide_pass(results, case.evaluation_policy.pass_rule)
     signature = None if passed else build_signature(case, raw, results)
     return EvalResult(run_id=run_id, case_id=case.id, passed=passed, assertion_results=results, failure_signature=signature)
