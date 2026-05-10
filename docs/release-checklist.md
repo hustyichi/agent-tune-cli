@@ -116,9 +116,9 @@ then replacing only the project package from TestPyPI:
 
 ```bash
 python -m venv /tmp/agent-deepeval-testpypi
-/tmp/agent-deepeval-testpypi/bin/python -m pip install dist/agent_deepeval-0.1.0-py3-none-any.whl
+/tmp/agent-deepeval-testpypi/bin/python -m pip install dist/agent_deepeval-0.2.0-py3-none-any.whl
 /tmp/agent-deepeval-testpypi/bin/python -m pip uninstall -y agent-deepeval
-/tmp/agent-deepeval-testpypi/bin/python -m pip install --index-url https://test.pypi.org/simple/ --no-deps agent-deepeval==0.1.0
+/tmp/agent-deepeval-testpypi/bin/python -m pip install --index-url https://test.pypi.org/simple/ --no-deps agent-deepeval==0.2.0
 /tmp/agent-deepeval-testpypi/bin/agent-eval --help
 ```
 
