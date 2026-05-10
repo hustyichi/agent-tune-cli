@@ -23,8 +23,6 @@ pip install agent-deepeval
 agent-eval --help
 ```
 
-<https://pypi.org/project/agent-deepeval/>
-
 For development:
 
 ```bash
