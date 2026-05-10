@@ -31,9 +31,15 @@ class ScriptTargetConfig(BaseModel):
     command: str = "{python} sample_agent.py --input-file {input_file}"
 
 
+class AdapterTargetConfig(BaseModel):
+    module: str = ""
+    function: str = "run"
+
+
 class TargetConfig(BaseModel):
     http: HttpTargetConfig = Field(default_factory=HttpTargetConfig)
     script: ScriptTargetConfig = Field(default_factory=ScriptTargetConfig)
+    adapter: AdapterTargetConfig = Field(default_factory=AdapterTargetConfig)
 
 
 class DatasetConfig(BaseModel):

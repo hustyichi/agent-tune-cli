@@ -9,7 +9,7 @@ The package is published as **`agent-deepeval`** on PyPI; the installed command 
 ## Highlights
 
 - **Fully offline by default** — no API keys, no SaaS, no live LLM calls required. Every evaluation runs on local files with deterministic rule assertions.
-- **Two target modes** — test local scripts (`mode: script`) or HTTP APIs (`mode: http`) without changing your test cases.
+- **Three target modes** — test local scripts (`mode: script`), HTTP APIs (`mode: http`), or in-process Python functions (`mode: adapter`) without changing your test cases.
 - **Automatic failure clustering** — failed cases are grouped by failure signature (error code, route, tool, assertion type, tags, etc.) so you can fix batches of problems at once.
 - **Run comparison & regression tracking** — `agent-eval compare` shows pass-rate deltas, per-case transitions (passed↔failed), and cluster evolution between any two runs.
 - **Repair export** — `agent-eval export` produces a structured `repair_input.json` with clustered evidence for downstream tuning pipelines.
@@ -91,7 +91,7 @@ agent-eval run
 
 The pipeline executes in sequence:
 
-1. **Run Agent** — sends each test case to your Agent (script or HTTP)
+1. **Run Agent** — sends each test case to your Agent (script, HTTP, or Python adapter)
 2. **Evaluate** — checks every assertion against the Agent's response
 3. **Cluster failures** — groups failed cases by their failure signature
 4. **Write artifacts** — saves all results to `runs/<run_id>/`
@@ -177,6 +177,30 @@ target:
 ```
 
 If the JSON response contains `debug_meta`, Agent-Eval uses it for execution-semantic checks; otherwise evaluation runs in black-box mode.
+
+### Python adapter mode
+
+```yaml
+project:
+  mode: adapter
+target:
+  adapter:
+    module: my_agent_adapter
+    function: run
+```
+
+Your adapter function is imported from the project root and receives the full case as a dictionary:
+
+```python
+def run(case: dict) -> dict:
+    query = case["inputs"]["query"]
+    return {
+        "response": {"answer": f"answer for {query}"},
+        "debug_meta": {"route": "knowledge_qa"},
+    }
+```
+
+You may also return a raw response object directly, for black-box evaluation without `debug_meta`. Adapter mode is synchronous and in-process: a raised `TimeoutError` is recorded as a timeout result, but `runner.timeout_seconds` is not a hard cancellation mechanism for hung Python code in this MVP. If you run adapter cases concurrently, the adapter function must be thread-safe.
 
 ## Opt-in DeepEval judging
 

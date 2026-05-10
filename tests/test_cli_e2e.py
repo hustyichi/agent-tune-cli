@@ -57,6 +57,64 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert (tmp_path / "reports" / "latest.md").exists()
 
 
+def test_adapter_runner_cli_e2e(tmp_path: Path):
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "eval.yaml").write_text("""
+project:
+  name: adapter-agent
+  mode: adapter
+runner:
+  concurrency: 1
+  timeout_seconds: 5
+  retry_times: 0
+target:
+  adapter:
+    module: local_adapter
+    function: run
+dataset:
+  paths: [cases/adapter.jsonl]
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+cluster:
+  enabled: true
+  llm_summary: false
+artifacts:
+  root_dir: ./runs
+  reports_dir: ./reports
+""")
+    (tmp_path / "local_adapter.py").write_text("""
+def run(case):
+    query = case['inputs']['query']
+    return {
+        'response': {'answer': f'adapter echo {query}'},
+        'debug_meta': {'route': 'adapter', 'tool_calls': [{'name': 'local.run'}]},
+    }
+""".strip())
+    (tmp_path / "cases" / "adapter.jsonl").write_text('{"id":"a1","inputs":{"query":"hello"},"assertions":[{"type":"contains","target":"$.answer","expected":"hello"}],"expected_execution":{"expected_route":"adapter","must_call_tools":["local.run"]}}\n')
+
+    result = run_cli(tmp_path, "run")
+
+    assert "total=1" in result.stdout
+    run_id = (tmp_path / "runs" / "latest.txt").read_text().strip()
+    run_dir = tmp_path / "runs" / run_id
+    required = ["manifest.json", "raw_results.jsonl", "eval_results.jsonl", "failures.jsonl", "clusters.json", "summary.md", "repair_input.json"]
+    for name in required:
+        assert (run_dir / name).exists(), name
+    raw = read_jsonl(run_dir / "raw_results.jsonl")[0]
+    eval_result = read_jsonl(run_dir / "eval_results.jsonl")[0]
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert raw["status"] == "success"
+    assert raw["response"]["answer"] == "adapter echo hello"
+    assert raw["debug_meta"]["route"] == "adapter"
+    assert eval_result["passed"] is True
+    assert manifest["mode"] == "adapter"
+    assert manifest["config_snapshot"]["target"]["adapter"]["module"] == "local_adapter"
+
+
 def test_redaction_in_e2e_artifacts(tmp_path: Path):
     run_cli(tmp_path, "init")
     # Add a case carrying sentinel secret fields; sample agent echoes only response/debug_meta,

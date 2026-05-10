@@ -25,7 +25,8 @@ The release covers the current local-first MVP commands:
 - `agent-eval compare`
 - `agent-eval export`
 
-Default generated projects must run offline. The default LLM judge behavior is
+Default generated projects must run offline. The supported local target modes
+are script, HTTP, and Python adapter mode. The default LLM judge behavior is
 stubbed/disabled and must not require API keys, SaaS, online observability, a
 database, or live LLM calls.
 
@@ -33,7 +34,7 @@ database, or live LLM calls.
 
 The release must not claim or implement these deferred capabilities:
 
-- local adapter mode
+- Node adapter mode
 - live LLM or DeepEval provider expansion beyond the existing optional path
 - LLM cluster summary / naming
 - full deep report

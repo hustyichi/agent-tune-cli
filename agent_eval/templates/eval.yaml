@@ -18,6 +18,12 @@ target:
       Content-Type: "application/json"
     payload_mapping:
       query: "$.inputs.query"
+  adapter:
+    # Switch project.mode to adapter to call this Python function in-process.
+    # The function receives the full case dict and may return either a raw
+    # response object or {response: ..., debug_meta: ...}.
+    module: ""
+    function: "run"
 
 dataset:
   paths:
