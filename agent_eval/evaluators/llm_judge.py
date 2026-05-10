@@ -44,7 +44,7 @@ class DeepEvalJudgeProvider:
             metric.measure(test_case)
         except ModuleNotFoundError as exc:
             if exc.name and exc.name.startswith("deepeval"):
-                return AssertionResult(type="llm_judge", metric=metric_name, passed=False, reason="deepeval package is required for provider=deepeval; install agent-eval-cli[deepeval]")
+                return AssertionResult(type="llm_judge", metric=metric_name, passed=False, reason="deepeval package is required for provider=deepeval; install agent-deepeval[deepeval]")
             return _provider_error(metric_name, exc)
         except Exception as exc:  # noqa: BLE001 - provider errors become assertion failures
             return _provider_error(metric_name, exc)

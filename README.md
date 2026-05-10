@@ -2,7 +2,7 @@
 
 Agent-Eval-CLI is a local-first command-line tool for batch testing Agent/LLM applications, evaluating results, clustering failures, and generating local reports for later tuning work.
 
-This repository currently implements the MVP described in `docs/prd.md` and planned in `.omx/plans/prd-agent-eval-cli-mvp.md`.
+The Python package is published as `agent-deepeval`; the installed console command is `agent-eval`. This repository currently implements the MVP described in `docs/prd.md`.
 
 ## MVP capabilities
 
@@ -14,10 +14,17 @@ This repository currently implements the MVP described in `docs/prd.md` and plan
 
 Default generated projects run fully offline. LLM judging defaults to a stub/disabled configuration; no API key, DeepEval install, or live LLM call is required for the sample workflow or tests. V1 also supports opt-in DeepEval judging for `answer_relevancy` when installed and explicitly enabled.
 
+## Install
+
+```bash
+python3 -m pip install agent-deepeval
+agent-eval --help
+```
+
 ## Install for development
 
 ```bash
-python3 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[dev,release]'
 ```
 
 ## Quick start
@@ -133,9 +140,22 @@ Artifacts are local files. Before writing request/response/debug/error/report da
 - No mandatory live LLM or DeepEval call in default workflows
 - No LLM cluster naming/summary or full deep report in V1
 
-## Verification
+## Release and verification
+
+Local release readiness is checked with:
 
 ```bash
-python3 -m pip install -e '.[dev]'
+python scripts/check-release.py
+```
+
+That gate runs tests, compileall, wheel/sdist build, `twine check`,
+installed-wheel smoke, and a fresh-project `agent-eval init/run/inspect/export/compare`
+flow. See `docs/release-checklist.md` for TestPyPI and PyPI publishing gates.
+TestPyPI must pass before uploading to PyPI.
+
+Development-only verification remains:
+
+```bash
+python3 -m pip install -e '.[dev,release]'
 pytest
 ```
