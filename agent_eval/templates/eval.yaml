@@ -37,6 +37,12 @@ evaluation:
     stub_result: skipped
   rule_assertions:
     enabled: true
+  # Per-case evaluation_policy may set:
+  #   reruns: N          # run N additional independent evaluation attempts
+  #   pass_rule: all     # aggregates assertions inside each attempt and
+  #                      # aggregates attempt outcomes across reruns
+  # runner.retry_times is separate: it retries a failed process/HTTP call
+  # inside one evaluation attempt.
 
 cluster:
   enabled: true

@@ -38,7 +38,15 @@ class ArtifactStore:
         self.run_dir.mkdir(parents=True, exist_ok=False)
         self.reports_dir.mkdir(parents=True, exist_ok=True)
 
-    def write_all(self, raw_results: list[RawResult], eval_results: list[EvalResult], failures: list[FailureRecord], clusters: ClustersFile, summary: str) -> RepairInput:
+    def write_all(
+        self,
+        raw_results: list[RawResult],
+        eval_results: list[EvalResult],
+        failures: list[FailureRecord],
+        clusters: ClustersFile,
+        summary: str,
+        attempts: list[dict[str, Any]] | None = None,
+    ) -> RepairInput:
         manifest = Manifest(
             run_id=self.run_id,
             created_at=datetime.now(UTC),
@@ -54,6 +62,8 @@ class ArtifactStore:
         write_json(self.run_dir / "manifest.json", manifest.model_dump(mode="json"))
         write_jsonl(self.run_dir / "raw_results.jsonl", raw_results)
         write_jsonl(self.run_dir / "eval_results.jsonl", eval_results)
+        if attempts:
+            write_jsonl(self.run_dir / "attempts.jsonl", attempts)
         write_jsonl(self.run_dir / "failures.jsonl", failures)
         write_json(self.run_dir / "clusters.json", clusters.model_dump(mode="json"))
         repair = build_repair_input(self.config.project.name, self.run_id, clusters, failures)

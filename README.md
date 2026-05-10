@@ -73,6 +73,22 @@ Each line in `cases/*.jsonl` is a test case:
 }
 ```
 
+Optional `evaluation_policy` controls deterministic aggregation:
+
+```json
+{
+  "evaluation_policy": {
+    "reruns": 2,
+    "pass_rule": "majority"
+  }
+}
+```
+
+- `runner.retry_times` retries a failed script/HTTP/adapter call inside one evaluation attempt.
+- `evaluation_policy.reruns` runs additional independent evaluation attempts for the case (`reruns: 2` means 3 attempts total).
+- `pass_rule` is applied in two layers: first to assertions inside each attempt, then to pass/fail outcomes across rerun attempts (`all`, `any`, or strict `majority`).
+- Rerun-enabled runs keep the normal case-level artifacts compatible and add `attempts.jsonl` with per-attempt raw/eval details.
+
 Assertions supported out of the box:
 
 - `contains` / `exact_match` — string and value matching
@@ -101,6 +117,7 @@ runs/<run_id>/
 ├── manifest.json        # run metadata and config snapshot
 ├── raw_results.jsonl    # raw Agent responses
 ├── eval_results.jsonl   # assertion pass/fail details
+├── attempts.jsonl       # per-rerun attempt details, only when reruns are enabled
 ├── failures.jsonl       # failed cases with failure signatures
 ├── clusters.json        # grouped failure clusters
 ├── summary.md           # human-readable run summary

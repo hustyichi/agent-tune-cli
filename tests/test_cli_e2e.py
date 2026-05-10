@@ -35,6 +35,7 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     required = ["manifest.json", "raw_results.jsonl", "eval_results.jsonl", "failures.jsonl", "clusters.json", "summary.md", "repair_input.json"]
     for name in required:
         assert (run_dir / name).exists(), name
+    assert not (run_dir / "attempts.jsonl").exists()
 
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["protocol_version"] == "agent-eval/v1alpha1"
@@ -113,6 +114,135 @@ def run(case):
     assert eval_result["passed"] is True
     assert manifest["mode"] == "adapter"
     assert manifest["config_snapshot"]["target"]["adapter"]["module"] == "local_adapter"
+
+
+def test_evaluation_policy_reruns_write_attempt_sidecar_and_preserve_consumers(tmp_path: Path):
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "eval.yaml").write_text("""
+project:
+  name: rerun-agent
+  mode: adapter
+runner:
+  concurrency: 1
+  timeout_seconds: 5
+  retry_times: 0
+target:
+  adapter:
+    module: rerun_adapter
+    function: run
+dataset:
+  paths: [cases/rerun.jsonl]
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+cluster:
+  enabled: true
+  llm_summary: false
+artifacts:
+  root_dir: ./runs
+  reports_dir: ./reports
+""")
+    (tmp_path / "rerun_adapter.py").write_text("""
+from pathlib import Path
+
+def run(case):
+    counter = Path('counter.txt')
+    n = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(n + 1))
+    answer = 'ok' if n == 1 else 'miss'
+    return {
+        'response': {'answer': answer, 'attempt_number': n + 1},
+        'debug_meta': {'route': 'rerun', 'tool_calls': []},
+    }
+""".strip())
+    (tmp_path / "cases" / "rerun.jsonl").write_text(
+        '{"id":"r1","inputs":{"query":"hello"},"assertions":[{"type":"contains","target":"$.answer","expected":"ok"}],"evaluation_policy":{"reruns":2,"pass_rule":"any"}}\n'
+    )
+
+    run_cli(tmp_path, "run", "--run-name", "rerun-any")
+    run_dir = tmp_path / "runs" / "rerun-any"
+    raw_rows = read_jsonl(run_dir / "raw_results.jsonl")
+    eval_rows = read_jsonl(run_dir / "eval_results.jsonl")
+    attempt_rows = read_jsonl(run_dir / "attempts.jsonl")
+
+    assert len(raw_rows) == 1
+    assert len(eval_rows) == 1
+    assert eval_rows[0]["case_id"] == "r1"
+    assert eval_rows[0]["passed"] is True
+    assert raw_rows[0]["response"]["answer"] == "ok"
+    assert raw_rows[0]["metadata"]["evaluation_attempt_index"] == 1
+    assert raw_rows[0]["metadata"]["evaluation_attempt_count"] == 3
+    assert [row["evaluation_attempt_index"] for row in attempt_rows] == [0, 1, 2]
+    assert [row["passed"] for row in attempt_rows] == [False, True, False]
+    assert all(row["case_id"] == "r1" for row in attempt_rows)
+    assert all(row["raw_result"]["attempt_count"] == 1 for row in attempt_rows)
+
+    inspect = run_cli(tmp_path, "inspect", "--run", "rerun-any", "--case", "r1")
+    assert '"case_id": "r1"' in inspect.stdout
+    export = run_cli(tmp_path, "export", "--run", "rerun-any")
+    assert "repair_input.json" in export.stdout
+
+    (tmp_path / "counter.txt").unlink()
+    run_cli(tmp_path, "run", "--run-name", "rerun-any-2")
+    comparison = json.loads(run_cli(tmp_path, "compare", "--base", "rerun-any", "--target", "rerun-any-2", "--show").stdout)
+    assert comparison["case_transitions"][0]["case_id"] == "r1"
+
+
+def test_evaluation_reruns_are_distinct_from_runner_retries(tmp_path: Path):
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "eval.yaml").write_text("""
+project:
+  name: retry-vs-rerun
+  mode: script
+runner:
+  concurrency: 1
+  timeout_seconds: 5
+  retry_times: 1
+target:
+  script:
+    command: "{python} flaky.py --input-file {input_file}"
+dataset:
+  paths: [cases/retry.jsonl]
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+cluster:
+  enabled: true
+  llm_summary: false
+artifacts:
+  root_dir: ./runs
+  reports_dir: ./reports
+""")
+    (tmp_path / "flaky.py").write_text("""
+import argparse, json, pathlib, sys
+parser = argparse.ArgumentParser()
+parser.add_argument('--input-file', required=True)
+parser.parse_args()
+counter = pathlib.Path('counter.txt')
+n = int(counter.read_text()) if counter.exists() else 0
+counter.write_text(str(n + 1))
+if n % 2 == 0:
+    sys.exit(1)
+print(json.dumps({'response': {'answer': 'ok'}, 'debug_meta': {'route': 'script'}}))
+""".strip())
+    (tmp_path / "cases" / "retry.jsonl").write_text(
+        '{"id":"retry","assertions":[{"type":"contains","target":"$.answer","expected":"ok"}],"evaluation_policy":{"reruns":1,"pass_rule":"all"}}\n'
+    )
+
+    run_cli(tmp_path, "run")
+    run_id = (tmp_path / "runs" / "latest.txt").read_text().strip()
+    attempts = read_jsonl(tmp_path / "runs" / run_id / "attempts.jsonl")
+
+    assert len(attempts) == 2
+    assert [row["evaluation_attempt_index"] for row in attempts] == [0, 1]
+    assert [row["raw_result"]["attempt_count"] for row in attempts] == [2, 2]
+    assert all(row["passed"] for row in attempts)
 
 
 def test_redaction_in_e2e_artifacts(tmp_path: Path):

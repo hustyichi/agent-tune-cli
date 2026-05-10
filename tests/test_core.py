@@ -11,6 +11,7 @@ from agent_eval.clustering import cluster_failures, make_failures
 from agent_eval.config import load_config
 from agent_eval.dataset import load_cases
 from agent_eval.evaluators import evaluate_case
+from agent_eval.evaluation_policy import attempt_count_for, decide_attempts_pass, select_representative_attempt
 from agent_eval.models import EvalCase, RawResult
 from agent_eval.utils.jsonpath import get_path, map_payload
 from agent_eval.utils.redact import REDACTED, redact
@@ -94,6 +95,24 @@ def test_evaluators_pass_and_fail_deterministically():
     assert bad.passed is False
     assert bad.failure_signature is not None
     assert bad.failure_signature.assertion_type == "contains"
+
+
+def test_evaluation_policy_attempt_helpers():
+    default_case = EvalCase.model_validate({"id": "default"})
+    rerun_case = EvalCase.model_validate({"id": "rerun", "evaluation_policy": {"reruns": 2}})
+
+    assert attempt_count_for(default_case) == 1
+    assert attempt_count_for(rerun_case) == 3
+
+    assert decide_attempts_pass([True, True], "all") is True
+    assert decide_attempts_pass([True, False], "all") is False
+    assert decide_attempts_pass([False, True], "any") is True
+    assert decide_attempts_pass([False, False], "any") is False
+    assert decide_attempts_pass([True, False, True], "majority") is True
+    assert decide_attempts_pass([True, False, False], "majority") is False
+
+    assert select_representative_attempt([False, True], aggregate_passed=True) == 1
+    assert select_representative_attempt([True, False], aggregate_passed=False) == 1
 
 
 def test_clustering_stable_ids():

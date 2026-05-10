@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import concurrent.futures
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 
@@ -13,13 +14,23 @@ from .comparison import compare_runs, comparison_summary
 from .config import load_config
 from .dataset import load_cases
 from .evaluators import evaluate_case
+from .evaluation_policy import attempt_count_for, decide_attempts_pass, select_representative_attempt
 from .export import export_repair_input
 from .inspect import inspect_run
 from .reporting import console_summary, render_summary
 from .run_id import new_run_id
 from .runners import build_runner
+from .runners.base import BaseRunner
+from .models import EvalCase, EvalResult, LlmJudgeConfig, RawResult
 
 app = typer.Typer(help="Local-first Agent batch evaluation and failure analysis CLI.")
+
+
+@dataclass
+class CaseRunResult:
+    raw: RawResult
+    eval: EvalResult
+    attempts: list[dict[str, Any]]
 
 
 def _copy_template(name: str, dest: Path, overwrite: bool = False) -> None:
@@ -27,6 +38,55 @@ def _copy_template(name: str, dest: Path, overwrite: bool = False) -> None:
         return
     content = resources.files("agent_eval.templates").joinpath(name).read_text()
     dest.write_text(content)
+
+
+def _with_attempt_metadata(raw: RawResult, attempt_index: int, attempt_count: int) -> RawResult:
+    metadata = dict(raw.metadata)
+    metadata.update(
+        {
+            "evaluation_attempt_index": attempt_index,
+            "evaluation_attempt_count": attempt_count,
+        }
+    )
+    return raw.model_copy(update={"metadata": metadata}, deep=True)
+
+
+def _run_case_with_policy(case: EvalCase, runner: BaseRunner, run_id: str, retry_times: int, llm_config: LlmJudgeConfig) -> CaseRunResult:
+    total_attempts = attempt_count_for(case)
+    raw_attempts = []
+    eval_attempts = []
+    sidecar_rows = []
+    for attempt_index in range(total_attempts):
+        raw = _with_attempt_metadata(
+            runner.run_with_retries(case, run_id, retry_times),
+            attempt_index,
+            total_attempts,
+        )
+        result = evaluate_case(run_id, case, raw, llm_config)
+        raw_attempts.append(raw)
+        eval_attempts.append(result)
+        if total_attempts > 1:
+            sidecar_rows.append(
+                {
+                    "run_id": run_id,
+                    "case_id": case.id,
+                    "evaluation_attempt_index": attempt_index,
+                    "evaluation_attempt_count": total_attempts,
+                    "passed": result.passed,
+                    "raw_result": raw.model_dump(mode="json"),
+                    "eval_result": result.model_dump(mode="json"),
+                    "runner_attempt_count": raw.attempt_count,
+                }
+            )
+    attempt_passes = [result.passed for result in eval_attempts]
+    aggregate_passed = decide_attempts_pass(attempt_passes, case.evaluation_policy.pass_rule)
+    representative_index = select_representative_attempt(attempt_passes, aggregate_passed)
+    representative_raw = raw_attempts[representative_index]
+    representative_eval = eval_attempts[representative_index]
+    canonical_eval = representative_eval.model_copy(update={"passed": aggregate_passed}, deep=True)
+    if aggregate_passed:
+        canonical_eval.failure_signature = None
+    return CaseRunResult(raw=representative_raw, eval=canonical_eval, attempts=sidecar_rows)
 
 
 @app.command()
@@ -66,26 +126,29 @@ def run(
     store.prepare()
     runner = build_runner(config, root)
 
-    raw_results = []
+    case_results: list[CaseRunResult] = []
     if config.runner.concurrency > 1:
         with concurrent.futures.ThreadPoolExecutor(max_workers=config.runner.concurrency) as pool:
-            futures = [pool.submit(runner.run_with_retries, case, run_id, config.runner.retry_times) for case in cases]
+            futures = [pool.submit(_run_case_with_policy, case, runner, run_id, config.runner.retry_times, config.evaluation.llm_judge) for case in cases]
             for fut in concurrent.futures.as_completed(futures):
-                raw_results.append(fut.result())
+                case_results.append(fut.result())
     else:
         for case in cases:
-            result = runner.run_with_retries(case, run_id, config.runner.retry_times)
-            raw_results.append(result)
-            if config.runner.fail_fast and result.status != "success":
+            result = _run_case_with_policy(case, runner, run_id, config.runner.retry_times, config.evaluation.llm_judge)
+            case_results.append(result)
+            if config.runner.fail_fast and not result.eval.passed:
                 break
     case_by_id = {case.id: case for case in cases}
-    raw_results.sort(key=lambda r: list(case_by_id).index(r.case_id))
-    eval_results = [evaluate_case(run_id, case_by_id[raw.case_id], raw, config.evaluation.llm_judge) for raw in raw_results]
+    case_order = list(case_by_id)
+    case_results.sort(key=lambda r: case_order.index(r.raw.case_id))
+    raw_results = [result.raw for result in case_results]
+    eval_results = [result.eval for result in case_results]
+    attempt_rows = [attempt for result in case_results for attempt in result.attempts]
     raw_by_case = {r.case_id: r for r in raw_results}
     failures = make_failures(run_id, eval_results, raw_by_case)
     clusters = cluster_failures(run_id, failures) if config.cluster.enabled else cluster_failures(run_id, [])
     summary = render_summary(run_id, cases, raw_results, eval_results, failures, clusters)
-    store.write_all(raw_results, eval_results, failures, clusters, summary)
+    store.write_all(raw_results, eval_results, failures, clusters, summary, attempt_rows)
     typer.echo(console_summary(run_id, eval_results, clusters, str(store.run_dir)))
 
 
