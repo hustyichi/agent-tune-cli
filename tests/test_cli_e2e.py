@@ -51,6 +51,8 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     outcomes = {e["case_id"]: e["passed"] for e in evals}
     assert outcomes == {"sample_pass": True, "sample_fail": False}
     assert [f["case_id"] for f in failures] == ["sample_fail"]
+    assert evals[1]["failure_signature"]["root_cause"] == "route_mismatch"
+    assert failures[0]["failure_signature"]["root_cause"] == "route_mismatch"
 
     inspect = run_cli(tmp_path, "inspect", "--run", "latest")
     assert "Cases: 2" in inspect.stdout
@@ -75,6 +77,13 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert repair["analysis"]["priority_breakdown"]
     assert repair["clusters"][0]["cases"]
     assert repair["clusters"][0]["common_signature"]
+    assert clusters[0]["common_signature"]["analysis"]["root_causes"] == ["route_mismatch"]
+    assert clusters[0]["common_signature"]["analysis"]["root_cause_counts"] == {"route_mismatch": 1}
+    assert clusters[0]["common_signature"]["analysis"]["common_root_cause"] == "route_mismatch"
+    assert repair["clusters"][0]["analysis"]["root_causes"] == ["route_mismatch"]
+    assert repair["clusters"][0]["analysis"]["root_cause_counts"] == {"route_mismatch": 1}
+    assert repair["clusters"][0]["analysis"]["common_root_cause"] == "route_mismatch"
+    assert "Root cause: route_mismatch" in summary
     assert repair["clusters"][0]["suspected_modules"] == []
     assert repair["clusters"][0]["evidence"]
     assert repair["clusters"][0]["analysis"]["representative_cases"]

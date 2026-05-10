@@ -16,6 +16,15 @@ def _render_breakdown(title: str, buckets: list[AnalysisBucket]) -> list[str]:
 
 
 def _render_cluster(cluster: ClusterAnalysis) -> list[str]:
+    signature_analysis = cluster.common_signature.get("analysis") or {}
+    common_root_cause = signature_analysis.get("common_root_cause")
+    root_cause_counts = signature_analysis.get("root_cause_counts") or {}
+    if common_root_cause:
+        root_cause_line = f"- Root cause: {common_root_cause}"
+    elif root_cause_counts:
+        root_cause_line = "- Root causes: " + ", ".join(f"{cause}={count}" for cause, count in root_cause_counts.items())
+    else:
+        root_cause_line = "- Root cause: none identified from local evidence"
     lines = [
         f"### {cluster.cluster_id}: {cluster.title}",
         "",
@@ -23,6 +32,7 @@ def _render_cluster(cluster: ClusterAnalysis) -> list[str]:
         f"- Cases: {', '.join(cluster.cases)}",
         f"- Representative cases: {', '.join(cluster.representative_cases) or 'none'}",
         f"- Common signature: {', '.join(f'{key}={value}' for key, value in cluster.common_signature.items() if key != 'analysis' and value) or 'none'}",
+        root_cause_line,
         f"- Signature explanation: {cluster.signature_explanation}",
         f"- Suspected modules: {', '.join(cluster.suspected_modules) if cluster.suspected_modules else 'none identified from local evidence'}",
         f"- Affected areas: {', '.join(cluster.affected_areas) if cluster.affected_areas else 'none identified from local evidence'}",

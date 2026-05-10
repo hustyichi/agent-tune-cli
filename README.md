@@ -10,7 +10,7 @@ The package is published as **`agent-deepeval`** on PyPI; the installed command 
 
 - **Fully offline by default** — no API keys, no SaaS, no live LLM calls required. Every evaluation runs on local files with deterministic rule assertions.
 - **Three target modes** — test local scripts (`mode: script`), HTTP APIs (`mode: http`), or in-process Python functions (`mode: adapter`) without changing your test cases.
-- **Automatic failure clustering** — failed cases are grouped by failure signature (error code, route, tool, assertion type, tags, etc.) so you can fix batches of problems at once.
+- **Automatic failure clustering** — failed cases are grouped by failure signature (error code, route, tool, assertion type, tags, etc.) and include deterministic root-cause hints for RAG/tool-chain failures.
 - **Run comparison & regression tracking** — `agent-eval compare` shows pass-rate deltas, per-case transitions (passed↔failed), and cluster evolution between any two runs.
 - **Repair export** — `agent-eval export` produces a structured `repair_input.json` with clustered evidence for downstream tuning pipelines.
 - **Privacy-first** — artifacts are local files; sensitive keys (Authorization, Cookie, API keys, tokens, passwords, prompts) are redacted before writing.
@@ -118,6 +118,13 @@ Assertions supported out of the box:
 - `http_status` — HTTP response code checks
 - `expected_execution` — semantic checks (route, tool calls, retrieval doc count, fallback behavior)
 - `llm_judge` — LLM-as-judge (stub by default; opt-in DeepEval)
+
+Execution-semantic failures also populate additive `failure_signature.root_cause`
+fields in local artifacts. Current deterministic root-cause hints include route
+mismatch, required/forbidden tool-call issues, retrieval missing or insufficient
+documents, fallback mismatch, target errors/timeouts, LLM judge failures, and
+content mismatches. Cluster IDs remain based on the stable v1 signature key;
+root causes are aggregated under `common_signature.analysis`.
 
 ### 3. Run evaluation
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from agent_eval.models import Cluster, ClustersFile, EvalResult, FailureRecord, RawResult
 
@@ -56,7 +56,28 @@ def _summary(items: list[FailureRecord], common_signature: dict) -> str:
         parts.append(f"route={common_signature['route_name']}")
     if common_signature.get("tool_name"):
         parts.append(f"tool={common_signature['tool_name']}")
+    analysis = common_signature.get("analysis") or {}
+    common_root_cause = analysis.get("common_root_cause")
+    root_cause_counts = analysis.get("root_cause_counts") or {}
+    if common_root_cause:
+        parts.append(f"root_cause={common_root_cause}")
+    elif root_cause_counts:
+        parts.append(
+            "root_causes="
+            + ", ".join(f"{cause}:{count}" for cause, count in root_cause_counts.items())
+        )
     return "; ".join(parts) + "."
+
+
+def _root_cause_analysis(items: list[FailureRecord]) -> dict[str, object]:
+    causes = [failure.failure_signature.root_cause or "unclassified" for failure in items]
+    counts = Counter(causes)
+    root_causes = sorted(counts)
+    return {
+        "root_causes": root_causes,
+        "root_cause_counts": {cause: counts[cause] for cause in root_causes},
+        "common_root_cause": root_causes[0] if len(root_causes) == 1 else None,
+    }
 
 
 def cluster_failures(run_id: str, failures: list[FailureRecord]) -> ClustersFile:
@@ -71,6 +92,7 @@ def cluster_failures(run_id: str, failures: list[FailureRecord]) -> ClustersFile
         digest = hashlib.sha1("|".join(key).encode()).hexdigest()[:8]
         cluster_id = f"cluster_{digest}"
         first_sig = items[0].failure_signature
+        root_cause_analysis = _root_cause_analysis(items)
         common_signature = {
             "assertion_type": assertion_type,
             "error_code": error_code,
@@ -82,6 +104,7 @@ def cluster_failures(run_id: str, failures: list[FailureRecord]) -> ClustersFile
                 "display_metric": first_sig.metric,
                 "priority": first_sig.priority,
                 "case_tags": first_sig.case_tags,
+                **root_cause_analysis,
             },
         }
         clusters.append(

@@ -176,6 +176,9 @@ class FailureSignature(BaseModel):
     assertion_reason_code: str | None = None
     expected_summary: str | None = None
     actual_summary: str | None = None
+    root_cause: str | None = None
+    root_cause_detail: str | None = None
+    execution_phase: str | None = None
     case_tags: list[str] = Field(default_factory=list)
     debug_flags: dict[str, Any] = Field(default_factory=dict)
 

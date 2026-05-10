@@ -50,6 +50,13 @@ def _affected_areas(signature: dict, suspected_modules: list[str]) -> list[str]:
         value = signature.get(field)
         if value:
             areas.append(f"{prefix}:{value}")
+    analysis = signature.get("analysis") or {}
+    common_root_cause = analysis.get("common_root_cause")
+    if common_root_cause:
+        areas.append(f"root_cause:{common_root_cause}")
+    else:
+        for root_cause in analysis.get("root_causes") or []:
+            areas.append(f"root_cause:{root_cause}")
     return areas
 
 
@@ -62,6 +69,13 @@ def _suggested_investigation(cluster_id: str, signature: dict, representative_ca
         parts.append(f"validate the {assertion_type} assertion expectations against actual responses")
     else:
         parts.append("compare expected behavior against actual responses")
+    analysis = signature.get("analysis") or {}
+    common_root_cause = analysis.get("common_root_cause")
+    if common_root_cause:
+        parts.append(f"prioritize root cause {common_root_cause}")
+    elif analysis.get("root_cause_counts"):
+        counts = ", ".join(f"{cause}={count}" for cause, count in analysis["root_cause_counts"].items())
+        parts.append(f"compare mixed root causes {counts}")
     return f"{'; '.join(parts)} for {cluster_id}."
 
 
