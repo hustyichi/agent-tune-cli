@@ -120,8 +120,8 @@ runs/<run_id>/
 ├── attempts.jsonl       # per-rerun attempt details, only when reruns are enabled
 ├── failures.jsonl       # failed cases with failure signatures
 ├── clusters.json        # grouped failure clusters
-├── summary.md           # human-readable run summary
-└── repair_input.json    # export-ready repair suggestions
+├── summary.md           # human-readable run summary and failure analysis
+└── repair_input.json    # export-ready repair analysis with matching structured evidence
 ```
 
 Options:
@@ -158,7 +158,9 @@ Comparison output includes:
 agent-eval export --run latest
 ```
 
-Produces `repair_input.json` with clustered failure evidence and suspected modules — ready for downstream prompt-tuning or code-fix pipelines.
+Produces `repair_input.json` with clustered failure evidence, representative cases, signature explanations, affected areas, and suggested investigation steps — ready for downstream prompt-tuning or code-fix pipelines.
+
+`summary.md` and `repair_input.json` are generated from the same local analysis layer. The Markdown report is optimized for human triage, while the JSON keeps additive structured fields under `analysis` for automation. Legacy fields such as `clusters[].cases`, `common_signature`, `evidence`, and `suspected_modules` remain stable. When local evidence cannot identify a suspected module, the CLI leaves `suspected_modules` empty instead of guessing.
 
 ## Target modes
 

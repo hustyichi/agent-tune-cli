@@ -214,6 +214,55 @@ class ClustersFile(BaseModel):
     clusters: list[Cluster] = Field(default_factory=list)
 
 
+class AnalysisTotals(BaseModel):
+    total: int
+    passed: int
+    failed: int
+    pass_rate: float
+
+
+class AnalysisBucket(BaseModel):
+    name: str
+    total: int
+    passed: int
+    failed: int
+    pass_rate: float
+
+
+class CaseEvidence(BaseModel):
+    case_id: str
+    reason: str
+    reasons: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    priority: str = ""
+    raw_status: str = ""
+
+
+class ClusterAnalysis(BaseModel):
+    cluster_id: str
+    title: str
+    severity: str
+    cases: list[str]
+    case_count: int
+    representative_cases: list[str]
+    common_signature: dict[str, Any]
+    signature_explanation: str
+    suspected_modules: list[str] = Field(default_factory=list)
+    affected_areas: list[str] = Field(default_factory=list)
+    evidence: list[CaseEvidence] = Field(default_factory=list)
+    suggested_investigation: str
+
+
+class RunAnalysis(BaseModel):
+    protocol_version: str = PROTOCOL_VERSION
+    run_id: str
+    run_dir: str
+    totals: AnalysisTotals
+    tag_breakdown: list[AnalysisBucket] = Field(default_factory=list)
+    priority_breakdown: list[AnalysisBucket] = Field(default_factory=list)
+    clusters: list[ClusterAnalysis] = Field(default_factory=list)
+
+
 class Manifest(BaseModel):
     protocol_version: str = PROTOCOL_VERSION
     run_id: str

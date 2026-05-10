@@ -55,6 +55,24 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert clusters[0]["cluster_id"] in cluster.stdout
     export = run_cli(tmp_path, "export", "--run", "latest")
     assert "repair_input.json" in export.stdout
+    exported = json.loads(run_cli(tmp_path, "export", "--run", "latest", "--show").stdout)
+    summary = (run_dir / "summary.md").read_text()
+    repair = json.loads((run_dir / "repair_input.json").read_text())
+    assert exported == repair
+    assert "## Tag Breakdown" in summary
+    assert "## Priority Breakdown" in summary
+    assert "Representative cases:" in summary
+    assert "Suggested investigation:" in summary
+    assert repair["analysis"]["totals"]["total"] == 2
+    assert repair["analysis"]["cluster_count"] == len(clusters)
+    assert repair["analysis"]["tag_breakdown"]
+    assert repair["analysis"]["priority_breakdown"]
+    assert repair["clusters"][0]["cases"]
+    assert repair["clusters"][0]["common_signature"]
+    assert repair["clusters"][0]["suspected_modules"] == []
+    assert repair["clusters"][0]["evidence"]
+    assert repair["clusters"][0]["analysis"]["representative_cases"]
+    assert repair["clusters"][0]["analysis"]["suggested_investigation"] in summary
     assert (tmp_path / "reports" / "latest.md").exists()
 
 

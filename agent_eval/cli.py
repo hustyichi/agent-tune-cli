@@ -9,6 +9,7 @@ from typing import Any, Optional
 import typer
 
 from .artifacts import ArtifactStore
+from .analysis import build_run_analysis
 from .clustering import cluster_failures, make_failures
 from .comparison import compare_runs, comparison_summary
 from .config import load_config
@@ -17,7 +18,7 @@ from .evaluators import evaluate_case
 from .evaluation_policy import attempt_count_for, decide_attempts_pass, select_representative_attempt
 from .export import export_repair_input
 from .inspect import inspect_run
-from .reporting import console_summary, render_summary
+from .reporting import console_summary, render_summary_from_analysis
 from .run_id import new_run_id
 from .runners import build_runner
 from .runners.base import BaseRunner
@@ -147,8 +148,9 @@ def run(
     raw_by_case = {r.case_id: r for r in raw_results}
     failures = make_failures(run_id, eval_results, raw_by_case)
     clusters = cluster_failures(run_id, failures) if config.cluster.enabled else cluster_failures(run_id, [])
-    summary = render_summary(run_id, cases, raw_results, eval_results, failures, clusters)
-    store.write_all(raw_results, eval_results, failures, clusters, summary, attempt_rows)
+    analysis = build_run_analysis(run_id, cases, raw_results, eval_results, failures, clusters, str(store.run_dir))
+    summary = render_summary_from_analysis(analysis)
+    store.write_all(cases, raw_results, eval_results, failures, clusters, summary, analysis, attempt_rows)
     typer.echo(console_summary(run_id, eval_results, clusters, str(store.run_dir)))
 
 

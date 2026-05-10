@@ -7,10 +7,22 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import __version__
+from .analysis import build_run_analysis
 from .config import dump_config
-from .utils.redact import redact
-from .models import ClustersFile, EvalConfig, EvalResult, FailureRecord, Manifest, RawResult, RepairCluster, RepairInput
+from .models import (
+    ClustersFile,
+    EvalCase,
+    EvalConfig,
+    EvalResult,
+    FailureRecord,
+    Manifest,
+    RawResult,
+    RepairCluster,
+    RepairInput,
+    RunAnalysis,
+)
 from .run_id import new_run_id
+from .utils.redact import redact, redact_text
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -40,11 +52,13 @@ class ArtifactStore:
 
     def write_all(
         self,
+        cases: list[EvalCase],
         raw_results: list[RawResult],
         eval_results: list[EvalResult],
         failures: list[FailureRecord],
         clusters: ClustersFile,
         summary: str,
+        analysis: RunAnalysis | None = None,
         attempts: list[dict[str, Any]] | None = None,
     ) -> RepairInput:
         manifest = Manifest(
@@ -66,7 +80,9 @@ class ArtifactStore:
             write_jsonl(self.run_dir / "attempts.jsonl", attempts)
         write_jsonl(self.run_dir / "failures.jsonl", failures)
         write_json(self.run_dir / "clusters.json", clusters.model_dump(mode="json"))
-        repair = build_repair_input(self.config.project.name, self.run_id, clusters, failures)
+        if analysis is None:
+            analysis = build_run_analysis(self.run_id, cases, raw_results, eval_results, failures, clusters, str(self.run_dir))
+        repair = build_repair_input(self.config.project.name, self.run_id, clusters, failures, analysis=analysis)
         write_json(self.run_dir / "repair_input.json", repair.model_dump(mode="json"))
         (self.run_dir / "summary.md").write_text(summary)
         (self.runs_dir / "latest.txt").write_text(self.run_id + "\n")
@@ -75,22 +91,54 @@ class ArtifactStore:
         return repair
 
 
-def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failures: list[FailureRecord]) -> RepairInput:
+def _bucket_map(buckets: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    return {
+        bucket.name: {
+            "total": bucket.total,
+            "passed": bucket.passed,
+            "failed": bucket.failed,
+            "pass_rate": bucket.pass_rate,
+        }
+        for bucket in buckets
+    }
+
+
+def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failures: list[FailureRecord], analysis: RunAnalysis | None = None) -> RepairInput:
+    run_analysis = analysis
+    if run_analysis is None:
+        # Compatibility path for callers/tests that only have the historical
+        # repair inputs. This keeps legacy fields stable while still using the
+        # shared analysis shape for cluster-level parity.
+        run_analysis = build_run_analysis(run_id, [], [], [], failures, clusters)
     failures_by_case = {f.case_id: f for f in failures}
+    analysis_by_cluster = {cluster.cluster_id: cluster for cluster in run_analysis.clusters}
     repair_clusters: list[RepairCluster] = []
     for cluster in clusters.clusters:
-        evidence = []
-        for case_id in cluster.case_ids:
-            failure = failures_by_case.get(case_id)
-            if failure:
-                evidence.append({"case_id": case_id, "reason": "; ".join(failure.reasons)})
+        cluster_analysis = analysis_by_cluster.get(cluster.cluster_id)
+        if cluster_analysis:
+            evidence = [item.model_dump(mode="json") for item in cluster_analysis.evidence]
+        else:
+            evidence = []
+            for case_id in cluster.case_ids:
+                failure = failures_by_case.get(case_id)
+                if failure:
+                    evidence.append({"case_id": case_id, "reason": "; ".join(redact_text(reason) or "" for reason in failure.reasons)})
         signature = cluster.common_signature or {}
-        analysis = {
-            "representative_cases": cluster.case_ids[:3],
-            "signature_explanation": cluster.summary,
+        cluster_payload = {
+            "representative_cases": cluster_analysis.representative_cases if cluster_analysis else cluster.case_ids[:3],
+            "signature_explanation": cluster_analysis.signature_explanation if cluster_analysis else cluster.summary,
         }
         if isinstance(signature.get("analysis"), dict):
-            analysis.update(signature["analysis"])
+            cluster_payload.update(signature["analysis"])
+        if cluster_analysis:
+            cluster_payload.update(
+                {
+                    "case_count": cluster_analysis.case_count,
+                    "affected_areas": cluster_analysis.affected_areas,
+                    "suggested_investigation": cluster_analysis.suggested_investigation,
+                    "evidence": [item.model_dump(mode="json") for item in cluster_analysis.evidence],
+                }
+            )
         repair_clusters.append(
             RepairCluster(
                 cluster_id=cluster.cluster_id,
@@ -98,17 +146,33 @@ def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failur
                 severity=cluster.severity,
                 cases=cluster.case_ids,
                 common_signature=cluster.common_signature,
-                suspected_modules=cluster.suspected_modules,
+                suspected_modules=cluster_analysis.suspected_modules if cluster_analysis else cluster.suspected_modules,
                 evidence=evidence,
-                analysis=analysis,
+                analysis=cluster_payload,
             )
         )
+    totals = run_analysis.totals.model_dump(mode="json")
     return RepairInput(
         run_id=run_id,
         project=project,
         clusters=repair_clusters,
         artifacts={"run_dir": f"runs/{run_id}"},
-        analysis={"cluster_count": len(repair_clusters)},
+        analysis={
+            "cluster_count": len(repair_clusters),
+            "totals": totals,
+            "tag_breakdown": _bucket_map(run_analysis.tag_breakdown),
+            "priority_breakdown": _bucket_map(run_analysis.priority_breakdown),
+            "clusters": [
+                {
+                    "cluster_id": cluster.cluster_id,
+                    "representative_cases": cluster.representative_cases,
+                    "signature_explanation": cluster.signature_explanation,
+                    "affected_areas": cluster.affected_areas,
+                    "suggested_investigation": cluster.suggested_investigation,
+                }
+                for cluster in run_analysis.clusters
+            ],
+        },
     )
 
 
