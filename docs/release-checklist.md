@@ -86,11 +86,20 @@ retain old-name evidence when clearly historical.
 `uv.lock` is maintained in this repository and must be regenerated or updated
 when package metadata changes.
 
+## Adoption-polish scope gate
+
+The release/adoption-polish batch is local/dry-run only. Its verification stops at
+`python scripts/check-release.py` and, when explicitly useful, the non-publishing
+`python scripts/publish-release.py` dry run. Do not run TestPyPI/PyPI upload commands
+or `python scripts/publish-release.py --publish` for this batch. Treat the TestPyPI
+and PyPI sections below as future, separately authorized release-publish guidance.
+
 ## TestPyPI gate
 
-TestPyPI requires credentials or trusted publishing. If credentials are
-unavailable, stop with the exact pending commands and do not claim TestPyPI
-completion.
+TestPyPI requires credentials or trusted publishing and is outside the current
+adoption-polish batch. If a separate release-publish task is authorized and
+credentials are unavailable, stop with the exact pending commands and do not claim
+TestPyPI completion.
 
 Suggested flow after the local gate:
 
@@ -118,8 +127,10 @@ If TestPyPI already has the target version, stop and ask; do not auto-bump.
 
 ## Direct PyPI continuous release
 
-After a release commit is ready and PyPI credentials are available in the
-process environment, use the reusable release script for future updates:
+This section is not part of adoption-polish verification; use it only for a
+separate, explicitly authorized publish task. After a release commit is ready and
+PyPI credentials are available in the process environment, use the reusable release
+script for future updates:
 
 ```bash
 python scripts/publish-release.py
@@ -139,7 +150,8 @@ files.
 
 ## PyPI gate
 
-Before real PyPI upload:
+This gate is for a separate authorized release only; it is not part of the
+adoption-polish verification batch. Before real PyPI upload:
 
 1. Re-run `python scripts/check-release.py`.
 2. Re-check official PyPI name/version availability for `agent-deepeval`.

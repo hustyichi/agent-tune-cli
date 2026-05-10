@@ -35,6 +35,26 @@ pip install -e '.[dev,release]'
 init → write test cases → run (execute + evaluate + cluster) → inspect / compare → export
 ```
 
+## 10-minute local onboarding smoke
+
+Use this path when you want to prove the package works locally with no API keys, SaaS account, live LLM call, or publish step. It runs the generated sample Agent and exercises the core artifacts a new user needs first.
+
+```bash
+mkdir my-agent-eval && cd my-agent-eval
+agent-eval init
+agent-eval run
+agent-eval inspect --run latest
+agent-eval export --run latest
+agent-eval compare --base latest --target latest
+```
+
+The default generated project is intentionally small: one sample case passes and one sample case fails. That expected failure is useful because it proves failure clustering, `summary.md`, and `repair_input.json` are populated during the first local run. After the smoke completes, inspect these landmarks:
+
+- `runs/latest.txt` — points at the latest run directory.
+- `runs/<run_id>/summary.md` — human-readable local failure analysis.
+- `runs/<run_id>/repair_input.json` — machine-readable repair/tuning input.
+- `reports/latest.md` — shortcut copy of the latest Markdown report.
+
 ### 1. Initialize a project
 
 ```bash
@@ -239,10 +259,12 @@ evaluation:
 ## Release & verification
 
 ```bash
-python scripts/check-release.py     # full gate: tests, build, twine, wheel smoke, e2e
-python scripts/publish-release.py   # dry-run PyPI checks
-python scripts/publish-release.py --publish  # upload to PyPI
+python scripts/check-release.py     # full local gate: tests, build, twine, wheel smoke, e2e; no upload
+python scripts/publish-release.py   # dry-run PyPI checks for a separately authorized release
+python scripts/publish-release.py --publish  # upload only when a real release is explicitly authorized
 ```
+
+For adoption-polish work, stop at local and dry-run gates. Do not run the `--publish` command unless a separate release decision grants publish authority.
 
 ## Non-goals
 

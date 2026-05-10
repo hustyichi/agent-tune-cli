@@ -27,10 +27,13 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     cfg_text = (tmp_path / "eval.yaml").read_text()
     assert "provider: stub" in cfg_text
     assert "llm_summary: false" in cfg_text
+    assert "one case passes and one fails" in cfg_text
 
     result = run_cli(tmp_path, "run")
     assert "total=2" in result.stdout
-    run_id = (tmp_path / "runs" / "latest.txt").read_text().strip()
+    latest = tmp_path / "runs" / "latest.txt"
+    assert latest.exists()
+    run_id = latest.read_text().strip()
     run_dir = tmp_path / "runs" / run_id
     required = ["manifest.json", "raw_results.jsonl", "eval_results.jsonl", "failures.jsonl", "clusters.json", "summary.md", "repair_input.json"]
     for name in required:
@@ -42,9 +45,12 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert manifest["evaluation"]["llm_judge"]["provider"] == "stub"
     raws = read_jsonl(run_dir / "raw_results.jsonl")
     evals = read_jsonl(run_dir / "eval_results.jsonl")
+    failures = read_jsonl(run_dir / "failures.jsonl")
     assert all(r["protocol_version"] == "agent-eval/v1alpha1" for r in raws)
     assert {e["case_id"] for e in evals} == {"sample_pass", "sample_fail"}
-    assert any(not e["passed"] for e in evals)
+    outcomes = {e["case_id"]: e["passed"] for e in evals}
+    assert outcomes == {"sample_pass": True, "sample_fail": False}
+    assert [f["case_id"] for f in failures] == ["sample_fail"]
 
     inspect = run_cli(tmp_path, "inspect", "--run", "latest")
     assert "Cases: 2" in inspect.stdout
@@ -73,6 +79,10 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert repair["clusters"][0]["evidence"]
     assert repair["clusters"][0]["analysis"]["representative_cases"]
     assert repair["clusters"][0]["analysis"]["suggested_investigation"] in summary
+    same_run_compare = json.loads(run_cli(tmp_path, "compare", "--base", "latest", "--target", "latest", "--show").stdout)
+    assert same_run_compare["base_run_id"] == run_id
+    assert same_run_compare["target_run_id"] == run_id
+    assert same_run_compare["totals"]["pass_rate_delta"] == 0
     assert (tmp_path / "reports" / "latest.md").exists()
 
 

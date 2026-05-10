@@ -26,6 +26,9 @@ target:
     function: "run"
 
 dataset:
+  # The generated sample is intentionally tiny: one case passes and one fails.
+  # The expected failure proves local clustering, summary.md, and repair_input.json
+  # are useful on the first offline run.
   paths:
     - "cases/sample.jsonl"
 

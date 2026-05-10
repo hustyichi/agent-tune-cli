@@ -52,6 +52,51 @@ def test_no_non_historical_old_distribution_references_remain():
     assert hits == []
 
 
+def test_readme_documents_10_minute_local_onboarding_path():
+    readme = (REPO_ROOT / "README.md").read_text()
+
+    for expected in [
+        "agent-deepeval",
+        "agent-eval",
+        "10-minute local onboarding smoke",
+        "agent-eval init",
+        "agent-eval run",
+        "agent-eval inspect --run latest",
+        "agent-eval export --run latest",
+        "agent-eval compare --base latest --target latest",
+        "one sample case passes and one sample case fails",
+        "repair_input.json",
+        "reports/latest.md",
+        "no API keys",
+        "Do not run the `--publish` command unless a separate release decision grants publish authority",
+    ]:
+        assert expected in readme
+
+
+def test_docs_preserve_adoption_polish_scope_and_current_surface():
+    prd = (REPO_ROOT / "docs" / "prd.md").read_text()
+    checklist = (REPO_ROOT / "docs" / "release-checklist.md").read_text()
+
+    for expected in [
+        "Python 本地适配器模式",
+        "compare",
+        "evaluation_policy.reruns",
+        "LLM cluster 总结与命名",
+        "加权 pass rule",
+        "Web/SaaS Dashboard",
+    ]:
+        assert expected in prd
+    assert "本地适配器模式（V1.1）" not in prd
+
+    for expected in [
+        "Adoption-polish scope gate",
+        "local/dry-run only",
+        "Do not run TestPyPI/PyPI upload commands",
+        "python scripts/publish-release.py --publish",
+        "future, separately authorized release-publish guidance",
+    ]:
+        assert expected in checklist
+
 def test_release_assets_document_required_gates():
     checklist = REPO_ROOT / "docs" / "release-checklist.md"
     script = REPO_ROOT / "scripts" / "check-release.py"
