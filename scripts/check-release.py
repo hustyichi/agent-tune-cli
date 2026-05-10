@@ -6,7 +6,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import venv
 from pathlib import Path
 
 
@@ -56,7 +55,13 @@ def build_distributions(temp_dir: Path) -> list[Path]:
 
 
 def create_venv(venv_dir: Path) -> Path:
-    venv.EnvBuilder(with_pip=True).create(venv_dir)
+    # uv-managed Python lacks ensurepip; use uv if available, else stdlib venv
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        run([uv_bin, "venv", str(venv_dir)])
+    else:
+        import venv
+        venv.EnvBuilder(with_pip=True).create(venv_dir)
     return bin_path(venv_dir, "python")
 
 
@@ -64,7 +69,11 @@ def install_wheel(python_bin: Path, artifacts: list[Path]) -> None:
     wheels = [path for path in artifacts if path.suffix == ".whl"]
     if len(wheels) != 1:
         raise AssertionError(f"expected exactly one wheel, found {[p.name for p in wheels]}")
-    run([str(python_bin), "-m", "pip", "install", str(wheels[0])])
+    uv_bin = shutil.which("uv")
+    if uv_bin:
+        run([uv_bin, "pip", "install", "--python", str(python_bin), str(wheels[0])])
+    else:
+        run([str(python_bin), "-m", "pip", "install", str(wheels[0])])
 
 
 def run_installed_e2e(python_bin: Path, work_dir: Path) -> None:
