@@ -114,6 +114,28 @@ python -m venv /tmp/agent-deepeval-testpypi
 
 If TestPyPI already has the target version, stop and ask; do not auto-bump.
 
+
+## Direct PyPI continuous release
+
+After a release commit is ready and PyPI credentials are available in the
+process environment, use the reusable release script for future updates:
+
+```bash
+python scripts/publish-release.py
+python scripts/publish-release.py --publish
+```
+
+The first command is a dry-run: it verifies the working tree, checks that the
+current `project.version` is not already published on PyPI, runs the local
+release gate, builds clean artifacts, and runs `twine check`. The second command
+performs the same safety checks and uploads the exact built artifacts to the
+official PyPI index.
+
+For normal releases, do not use `--allow-dirty`; publish from a committed tree
+so the package version and source history remain auditable. If PyPI already has
+the target version, bump `project.version` first instead of trying to overwrite
+files.
+
 ## PyPI gate
 
 Before real PyPI upload:

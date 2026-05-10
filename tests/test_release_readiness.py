@@ -95,3 +95,24 @@ def test_release_script_uses_temp_dist_for_twine_check():
     assert "--outdir" in script
     assert re.search(r"twine.*check", script, re.DOTALL)
     assert "dist/*" not in script
+
+
+def test_direct_pypi_publish_script_is_safe_for_continuous_releases():
+    script = REPO_ROOT / "scripts" / "publish-release.py"
+
+    assert script.exists()
+    script_text = script.read_text()
+    for expected in [
+        "--publish",
+        "scripts/check-release.py",
+        "pypi.org/pypi",
+        "twine",
+        "upload",
+        "git",
+        "dry-run",
+    ]:
+        assert expected in script_text
+    assert "testpypi" not in script_text.lower()
+    assert "TWINE_USERNAME" not in script_text
+    assert "TWINE_PASSWORD" not in script_text
+    ast.parse(script_text)
