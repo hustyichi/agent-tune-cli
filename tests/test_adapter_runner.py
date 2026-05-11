@@ -11,6 +11,7 @@ from agent_eval.config import load_config
 from agent_eval.evaluators import evaluate_case
 from agent_eval.models import EvalCase
 from agent_eval.runners import build_runner
+from agent_eval.runners.adapter import PythonAdapterRunner
 from agent_eval.runners.http import HttpRunner
 from agent_eval.runners.script import ScriptRunner
 from agent_eval.utils.redact import REDACTED
@@ -44,8 +45,10 @@ evaluation:
 
 def test_existing_script_and_http_configs_do_not_require_adapter(tmp_path: Path):
     script_config = load_config(Path("does-not-exist.yaml"))
+    assert script_config.project.mode == "script"
     assert isinstance(build_runner(script_config, tmp_path), ScriptRunner)
     assert script_config.target.adapter.module == ""
+    assert script_config.target.adapter.function == "run"
 
     http_config_path = tmp_path / "http.yaml"
     http_config_path.write_text(
@@ -113,9 +116,56 @@ def run(case):
     result = evaluate_case("r1", case, raw, load_config(Path("does-not-exist.yaml")).evaluation.llm_judge)
 
     assert raw.status == "success"
+    assert raw.request == {"inputs": {"query": "pricing"}}
+    assert "command" not in raw.request
+    assert "input_file" not in raw.request
     assert raw.response == {"answer": "pricing details"}
     assert raw.debug_meta["route"] == "knowledge_qa"
     assert result.passed is True
+
+
+def test_adapter_runner_receives_full_case_shape(tmp_path: Path):
+    module = write_module(
+        tmp_path,
+        """
+def run(case):
+    return {
+        "response": {
+            "id": case["id"],
+            "query": case["inputs"]["query"],
+            "product": case["context"]["product"],
+            "assertion_type": case["assertions"][0]["type"],
+            "route": case["expected_execution"]["expected_route"],
+            "pass_rule": case["evaluation_policy"]["pass_rule"],
+        },
+        "debug_meta": {"route": "case_shape"},
+    }
+""".strip(),
+    )
+    runner = build_runner(adapter_config(tmp_path, module), tmp_path)
+    case = EvalCase.model_validate(
+        {
+            "id": "shape",
+            "inputs": {"query": "pricing"},
+            "context": {"product": "pricing"},
+            "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
+            "expected_execution": {"expected_route": "case_shape"},
+            "evaluation_policy": {"pass_rule": "any"},
+        }
+    )
+
+    raw = runner.run_once(case, "r1")
+
+    assert raw.status == "success"
+    assert raw.response == {
+        "id": "shape",
+        "query": "pricing",
+        "product": "pricing",
+        "assertion_type": "contains",
+        "route": "case_shape",
+        "pass_rule": "any",
+    }
+    assert raw.debug_meta == {"route": "case_shape"}
 
 
 def test_adapter_runner_accepts_raw_response_without_debug_meta(tmp_path: Path):
@@ -188,3 +238,31 @@ def run(case):
             sys.path.remove(str(tmp_path))
     finally:
         sys.modules.pop(module, None)
+
+
+def test_generated_adapter_template_imports_without_io_boilerplate(tmp_path: Path):
+    from importlib import resources
+
+    eval_yaml = resources.files("agent_eval.templates").joinpath("eval.yaml").read_text()
+    sample_agent = resources.files("agent_eval.templates").joinpath("sample_agent.py").read_text()
+    (tmp_path / "eval.yaml").write_text(eval_yaml)
+    (tmp_path / "sample_agent.py").write_text(sample_agent)
+    try:
+        config = load_config(tmp_path / "eval.yaml")
+        runner = build_runner(config, tmp_path)
+        case = EvalCase.model_validate({"id": "generated", "inputs": {"query": "route knowledge pricing"}, "context": {"product": "pricing"}})
+
+        raw = runner.run_once(case, "r1")
+
+        assert config.project.mode == "adapter"
+        assert config.target.adapter.module == "sample_agent"
+        assert config.target.adapter.function == "run"
+        assert isinstance(runner, PythonAdapterRunner)
+        assert "argparse" not in sample_agent
+        assert "--input-file" not in sample_agent
+        assert "print(json.dumps" not in sample_agent
+        assert raw.status == "success"
+        assert raw.response["answer"]
+        assert raw.debug_meta["route"] == "knowledge_qa"
+    finally:
+        sys.modules.pop("sample_agent", None)

@@ -25,6 +25,15 @@ def test_generated_project_e2e_offline(tmp_path: Path):
     assert (tmp_path / "eval.yaml").exists()
     assert (tmp_path / "cases" / "sample.jsonl").exists()
     cfg_text = (tmp_path / "eval.yaml").read_text()
+    sample_agent = (tmp_path / "sample_agent.py").read_text()
+    assert "mode: adapter" in cfg_text
+    assert "module: sample_agent" in cfg_text
+    assert "function: run" in cfg_text
+    assert "def run(case:" in sample_agent
+    assert "context" in sample_agent
+    assert "argparse" not in sample_agent
+    assert "--input-file" not in sample_agent
+    assert "print(json.dumps" not in sample_agent
     assert "provider: stub" in cfg_text
     assert "llm_summary: false" in cfg_text
     assert "one case passes and one fails" in cfg_text
@@ -42,11 +51,21 @@ def test_generated_project_e2e_offline(tmp_path: Path):
 
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["protocol_version"] == "agent-eval/v1alpha1"
+    assert manifest["mode"] == "adapter"
+    assert manifest["config_snapshot"]["project"]["mode"] == "adapter"
+    assert manifest["config_snapshot"]["target"]["adapter"]["module"] == "sample_agent"
+    assert manifest["config_snapshot"]["target"]["adapter"]["function"] == "run"
     assert manifest["evaluation"]["llm_judge"]["provider"] == "stub"
     raws = read_jsonl(run_dir / "raw_results.jsonl")
     evals = read_jsonl(run_dir / "eval_results.jsonl")
     failures = read_jsonl(run_dir / "failures.jsonl")
     assert all(r["protocol_version"] == "agent-eval/v1alpha1" for r in raws)
+    assert raws[0]["response"]["answer"]
+    assert raws[0]["debug_meta"]["route"] == "knowledge_qa"
+    assert all("response" in r for r in raws)
+    assert all("debug_meta" in r for r in raws)
+    assert all("command" not in r["request"] for r in raws)
+    assert all("input_file" not in r["request"] for r in raws)
     assert {e["case_id"] for e in evals} == {"sample_pass", "sample_fail"}
     outcomes = {e["case_id"]: e["passed"] for e in evals}
     assert outcomes == {"sample_pass": True, "sample_fail": False}
@@ -147,10 +166,61 @@ def run(case):
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert raw["status"] == "success"
     assert raw["response"]["answer"] == "adapter echo hello"
+    assert raw["request"] == {"inputs": {"query": "hello"}}
+    assert "command" not in raw["request"]
+    assert "input_file" not in raw["request"]
     assert raw["debug_meta"]["route"] == "adapter"
+    assert raw["debug_meta"]["tool_calls"][0]["name"] == "local.run"
     assert eval_result["passed"] is True
     assert manifest["mode"] == "adapter"
+    assert manifest["config_snapshot"]["project"]["mode"] == "adapter"
     assert manifest["config_snapshot"]["target"]["adapter"]["module"] == "local_adapter"
+
+
+def test_adapter_runner_cli_defaults_function_to_run(tmp_path: Path):
+    (tmp_path / "cases").mkdir()
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "eval.yaml").write_text("""
+project:
+  name: adapter-default-function
+  mode: adapter
+runner:
+  concurrency: 1
+  timeout_seconds: 5
+target:
+  adapter:
+    module: local_adapter
+dataset:
+  paths: [cases/adapter.jsonl]
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+cluster:
+  enabled: true
+  llm_summary: false
+artifacts:
+  root_dir: ./runs
+  reports_dir: ./reports
+""")
+    (tmp_path / "local_adapter.py").write_text("""
+def run(case):
+    return {"response": {"answer": case["inputs"]["query"]}, "debug_meta": {"route": "default_run"}}
+""".strip())
+    (tmp_path / "cases" / "adapter.jsonl").write_text(
+        '{"id":"a1","inputs":{"query":"hello"},"assertions":[{"type":"contains","target":"$.answer","expected":"hello"}],"expected_execution":{"expected_route":"default_run"}}\n'
+    )
+
+    run_cli(tmp_path, "run")
+
+    run_id = (tmp_path / "runs" / "latest.txt").read_text().strip()
+    run_dir = tmp_path / "runs" / run_id
+    raw = read_jsonl(run_dir / "raw_results.jsonl")[0]
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert raw["status"] == "success"
+    assert raw["debug_meta"]["route"] == "default_run"
+    assert manifest["config_snapshot"]["target"]["adapter"]["function"] == "run"
 
 
 def test_evaluation_policy_reruns_write_attempt_sidecar_and_preserve_consumers(tmp_path: Path):
@@ -470,12 +540,39 @@ def test_export_inspect_reject_run_traversal(tmp_path: Path):
 
 def test_script_command_secret_redacted_from_manifest_and_raw(tmp_path: Path):
     run_cli(tmp_path, "init")
-    cfg = (tmp_path / "eval.yaml").read_text()
-    cfg = cfg.replace("{python} sample_agent.py --input-file {input_file}", "{python} sample_agent.py --api-key sk-live-abc123 --input-file {input_file}")
-    # Make sample agent tolerate the extra arg.
-    agent = (tmp_path / "sample_agent.py").read_text().replace('parser.add_argument("--input-file", required=True)', 'parser.add_argument("--api-key", required=False)\nparser.add_argument("--input-file", required=True)')
-    (tmp_path / "eval.yaml").write_text(cfg)
-    (tmp_path / "sample_agent.py").write_text(agent)
+    (tmp_path / "eval.yaml").write_text("""
+project:
+  name: script-secret
+  mode: script
+runner:
+  concurrency: 1
+  timeout_seconds: 5
+  retry_times: 0
+target:
+  script:
+    command: "{python} sample_agent.py --api-key sk-live-abc123 --input-file {input_file}"
+dataset:
+  paths: [cases/sample.jsonl]
+evaluation:
+  llm_judge:
+    enabled: false
+    provider: stub
+cluster:
+  enabled: true
+  llm_summary: false
+artifacts:
+  root_dir: ./runs
+  reports_dir: ./reports
+""")
+    (tmp_path / "sample_agent.py").write_text("""
+import argparse, json
+parser = argparse.ArgumentParser()
+parser.add_argument("--api-key", required=False)
+parser.add_argument("--input-file", required=True)
+args = parser.parse_args()
+case = json.load(open(args.input_file))
+print(json.dumps({"response": {"answer": case.get("inputs", {}).get("query", "")}, "debug_meta": {"route": "script"}}))
+""".strip())
     run_cli(tmp_path, "run")
     run_id = (tmp_path / "runs" / "latest.txt").read_text().strip()
     combined = "\n".join(p.read_text() for p in (tmp_path / "runs" / run_id).iterdir() if p.is_file())

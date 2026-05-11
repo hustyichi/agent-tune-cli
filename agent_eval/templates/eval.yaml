@@ -1,6 +1,6 @@
 project:
   name: sample-agent
-  mode: script
+  mode: adapter
 
 runner:
   concurrency: 1
@@ -9,8 +9,16 @@ runner:
   fail_fast: false
 
 target:
+  adapter:
+    # Python function mode is the generated default. The function receives the
+    # full case dict and may return either a raw response object or
+    # {response: ..., debug_meta: ...}.
+    module: sample_agent
+    function: run
   script:
-    command: "{python} sample_agent.py --input-file {input_file}"
+    # Supported advanced process mode for non-Python commands or hard
+    # subprocess isolation. Switch project.mode to script to use it.
+    command: "{python} your_script_agent.py --input-file {input_file}"
   http:
     url: "http://localhost:8000/chat"
     method: "POST"
@@ -18,12 +26,6 @@ target:
       Content-Type: "application/json"
     payload_mapping:
       query: "$.inputs.query"
-  adapter:
-    # Switch project.mode to adapter to call this Python function in-process.
-    # The function receives the full case dict and may return either a raw
-    # response object or {response: ..., debug_meta: ...}.
-    module: ""
-    function: "run"
 
 dataset:
   # The generated sample is intentionally tiny: one case passes and one fails.
@@ -44,7 +46,7 @@ evaluation:
   #   reruns: N          # run N additional independent evaluation attempts
   #   pass_rule: all     # aggregates assertions inside each attempt and
   #                      # aggregates attempt outcomes across reruns
-  # runner.retry_times is separate: it retries a failed process/HTTP call
+  # runner.retry_times is separate: it retries a failed process/HTTP/adapter call
   # inside one evaluation attempt.
 
 cluster:

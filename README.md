@@ -9,7 +9,7 @@ The package is published as **`agent-deepeval`** on PyPI; the installed command 
 ## Highlights
 
 - **Fully offline by default** — no API keys, no SaaS, no live LLM calls required. Every evaluation runs on local files with deterministic rule assertions.
-- **Three target modes** — test local scripts (`mode: script`), HTTP APIs (`mode: http`), or in-process Python functions (`mode: adapter`) without changing your test cases.
+- **Three target modes** — generated projects use a Python function (`mode: adapter`) by default; HTTP APIs (`mode: http`) and supported process scripts (`mode: script`) use the same test cases.
 - **Automatic failure clustering** — failed cases are grouped by failure signature (error code, route, tool, assertion type, tags, etc.) and include deterministic root-cause hints for RAG/tool-chain failures.
 - **Run comparison & regression tracking** — `agent-eval compare` shows pass-rate deltas, per-case transitions (passed↔failed), and cluster evolution between any two runs.
 - **Repair export** — `agent-eval export` produces a structured `repair_input.json` with clustered evidence for downstream tuning pipelines.
@@ -68,7 +68,7 @@ This scaffolds:
 |----------|---------|
 | `eval.yaml` | Project configuration (target mode, evaluation rules, clustering settings) |
 | `cases/sample.jsonl` | Example test cases |
-| `sample_agent.py` | Example Agent script |
+| `sample_agent.py` | Example Python function adapter |
 | `runs/` | Artifact output directory |
 | `reports/` | Human-readable summary reports |
 
@@ -134,7 +134,7 @@ agent-eval run
 
 The pipeline executes in sequence:
 
-1. **Run Agent** — sends each test case to your Agent (script, HTTP, or Python adapter)
+1. **Run Agent** — calls the generated Python function by default, or sends each test case to an HTTP/API or supported script-process target
 2. **Evaluate** — checks every assertion against the Agent's response
 3. **Cluster failures** — groups failed cases by their failure signature
 4. **Write artifacts** — saves all results to `runs/<run_id>/`
@@ -191,21 +191,48 @@ Produces `repair_input.json` with clustered failure evidence, representative cas
 
 ## Target modes
 
-### Script mode (default)
+### Python function mode (`mode: adapter`) — generated default
+
+`agent-eval init` generates a local Python function adapter by default:
 
 ```yaml
 project:
-  mode: script
+  mode: adapter
 target:
-  script:
-    command: "{python} sample_agent.py --input-file {input_file}"
+  adapter:
+    module: sample_agent
+    function: run
 ```
 
-Your script receives a temp JSON file, prints JSON to stdout:
+Your adapter function is imported from the project root and receives the full case as a dictionary. The most important fields are:
 
-```json
-{"response": {"answer": "..."}, "debug_meta": {"route": "knowledge_qa"}}
+| Field | Meaning |
+| --- | --- |
+| `id` | Stable case identifier |
+| `inputs` | User-defined request data, such as `{ "query": "..." }` |
+| `context` | Optional supporting data for the case |
+| `assertions` | Deterministic checks applied to the response |
+| `expected_execution` | Optional route/tool/retrieval expectations for execution-semantic checks |
+| `evaluation_policy` | Per-case rerun and pass-rule settings |
+
+```python
+def run(case: dict) -> dict:
+    inputs = case.get("inputs", {})
+    context = case.get("context", {})
+    query = inputs.get("query", "")
+    product = context.get("product", "pricing")
+    return {
+        "response": {"answer": f"answer for {query} about {product}"},
+        "debug_meta": {"route": "knowledge_qa"},
+    }
 ```
+
+Return either:
+
+- a raw response object, for black-box evaluation without execution metadata; or
+- `{ "response": ..., "debug_meta": ... }`, where `debug_meta` powers execution-semantic checks such as route, tool-call, retrieval, and fallback assertions.
+
+Adapter mode is synchronous and in-process: a raised `TimeoutError` is recorded as a timeout result, but `runner.timeout_seconds` is not a hard cancellation mechanism for hung Python code in this MVP. If you run adapter cases concurrently, the adapter function must be stateless or thread-safe because `agent-eval run --concurrency N` may call the same imported function from multiple threads.
 
 ### HTTP mode
 
@@ -224,29 +251,57 @@ target:
 
 If the JSON response contains `debug_meta`, Agent-Eval uses it for execution-semantic checks; otherwise evaluation runs in black-box mode.
 
-### Python adapter mode
+### Script process mode — supported advanced / legacy-compatible
+
+Use script mode for existing CLIs, non-Python agents, hard process isolation, or subprocess timeout enforcement:
 
 ```yaml
+project:
+  mode: script
+target:
+  script:
+    command: "{python} sample_agent.py --input-file {input_file}"
+```
+
+Script mode writes each case to a temporary JSON file, passes its path through `{input_file}`, and reads JSON from stdout:
+
+```json
+{"response": {"answer": "..."}, "debug_meta": {"route": "knowledge_qa"}}
+```
+
+Migration from the old generated script pattern to the Python function default is usually mechanical:
+
+```python
+# Before: process script
+parser.add_argument("--input-file", required=True)
+case = json.load(open(args.input_file))
+print(json.dumps({"response": response, "debug_meta": debug_meta}))
+```
+
+```python
+# After: Python function adapter
+def run(case: dict) -> dict:
+    return {"response": response, "debug_meta": debug_meta}
+```
+
+Config migration:
+
+```yaml
+# Before
+project:
+  mode: script
+target:
+  script:
+    command: "{python} sample_agent.py --input-file {input_file}"
+
+# After
 project:
   mode: adapter
 target:
   adapter:
-    module: my_agent_adapter
+    module: sample_agent
     function: run
 ```
-
-Your adapter function is imported from the project root and receives the full case as a dictionary:
-
-```python
-def run(case: dict) -> dict:
-    query = case["inputs"]["query"]
-    return {
-        "response": {"answer": f"answer for {query}"},
-        "debug_meta": {"route": "knowledge_qa"},
-    }
-```
-
-You may also return a raw response object directly, for black-box evaluation without `debug_meta`. Adapter mode is synchronous and in-process: a raised `TimeoutError` is recorded as a timeout result, but `runner.timeout_seconds` is not a hard cancellation mechanism for hung Python code in this MVP. If you run adapter cases concurrently, the adapter function must be thread-safe.
 
 ## Opt-in DeepEval judging
 

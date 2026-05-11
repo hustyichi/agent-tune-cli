@@ -25,10 +25,12 @@ The release covers the current local-first MVP commands:
 - `agent-eval compare`
 - `agent-eval export`
 
-Default generated projects must run offline. The supported local target modes
-are script, HTTP, and Python adapter mode. The default LLM judge behavior is
-stubbed/disabled and must not require API keys, SaaS, online observability, a
-database, or live LLM calls.
+Default generated projects must run offline using Python function / adapter
+mode. The supported local target modes remain Python adapter, HTTP, and script
+process mode; script mode is the supported process path for legacy CLI,
+hard-isolation, and language-agnostic use cases. The default LLM judge behavior
+is stubbed/disabled and must not require API keys, SaaS, online observability,
+a database, or live LLM calls.
 
 ## Deferred features / non-goals
 
