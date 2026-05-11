@@ -4,25 +4,50 @@ import re
 from typing import Any
 
 SENSITIVE_KEYS = {
-    "authorization", "cookie", "set-cookie", "api_key", "apikey", "api-key",
-    "token", "access_token", "refresh_token", "password", "secret", "client_secret",
-    "prompt", "full_prompt", "context_full", "intermediate_context",
+    "authorization",
+    "cookie",
+    "set-cookie",
+    "api_key",
+    "apikey",
+    "api-key",
+    "token",
+    "access_token",
+    "refresh_token",
+    "password",
+    "secret",
+    "client_secret",
+    "prompt",
+    "full_prompt",
+    "context_full",
+    "intermediate_context",
 }
 REDACTED = "[REDACTED]"
-SECRET_PATTERN = re.compile(r"[A-Za-z0-9_.:-]*(?:SECRET|TOKEN|API[_-]?KEY|PASSWORD)[A-Za-z0-9_.:=/-]*", re.IGNORECASE)
-SECRET_VALUE_PATTERN = re.compile(r"(?i)\b(?:sk|pk|rk|api|token|secret|key|bearer)[-_][A-Za-z0-9][A-Za-z0-9_.=-]{5,}\b")
-FLAG_VALUE_PATTERN = re.compile(r"(?i)(--(?:api-?key|token|password|secret|authorization)\s+)(\S+)")
+SECRET_PATTERN = re.compile(
+    r"[A-Za-z0-9_.:-]*(?:SECRET|TOKEN|API[_-]?KEY|PASSWORD)[A-Za-z0-9_.:=/-]*",
+    re.IGNORECASE,
+)
+SECRET_VALUE_PATTERN = re.compile(
+    r"(?i)\b(?:sk|pk|rk|api|token|secret|key|bearer)[-_][A-Za-z0-9][A-Za-z0-9_.=-]{5,}\b"
+)
+FLAG_VALUE_PATTERN = re.compile(
+    r"(?i)(--(?:api-?key|token|password|secret|authorization)\s+)(\S+)"
+)
 BEARER_VALUE_PATTERN = re.compile(r"(?i)(bearer\s+)(\S+)")
 
 
 def is_sensitive_key(key: str) -> bool:
     lower = key.lower().replace("-", "_")
-    return lower in SENSITIVE_KEYS or any(marker in lower for marker in ("api_key", "token", "password", "secret"))
+    return lower in SENSITIVE_KEYS or any(
+        marker in lower for marker in ("api_key", "token", "password", "secret")
+    )
 
 
 def redact(value: Any) -> Any:
     if isinstance(value, dict):
-        return {k: (REDACTED if is_sensitive_key(str(k)) else redact(v)) for k, v in value.items()}
+        return {
+            k: (REDACTED if is_sensitive_key(str(k)) else redact(v))
+            for k, v in value.items()
+        }
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, str):

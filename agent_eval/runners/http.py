@@ -33,7 +33,14 @@ class HttpRunner(BaseRunner):
                 timeout=self.timeout,
             )
         except httpx.TimeoutException:
-            return error_result(run_id, case, "timeout", start, f"HTTP timed out after {self.timeout}s", "timeout")
+            return error_result(
+                run_id,
+                case,
+                "timeout",
+                start,
+                f"HTTP timed out after {self.timeout}s",
+                "timeout",
+            )
         except httpx.HTTPError as exc:
             return error_result(run_id, case, "error", start, str(exc), "http")
         latency = (time.perf_counter() - start) * 1000
@@ -62,6 +69,8 @@ class HttpRunner(BaseRunner):
             request=redact({"headers": self.config.headers, "payload": payload}),
             response=redact(response),
             debug_meta=redact(debug_meta),
-            error=None if status == "success" else {"message": f"HTTP status {resp.status_code}", "type": "http"},
+            error=None
+            if status == "success"
+            else {"message": f"HTTP status {resp.status_code}", "type": "http"},
             metadata={"status_code": resp.status_code},
         )

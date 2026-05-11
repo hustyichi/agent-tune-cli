@@ -76,7 +76,9 @@ def test_adapter_runner_dispatch_requires_module_only_in_adapter_mode(tmp_path: 
 
 def test_adapter_runner_reports_missing_function_as_adapter_error(tmp_path: Path):
     module = write_module(tmp_path, "ANSWER = {'answer': 'ok'}")
-    runner = build_runner(adapter_config(tmp_path, module, function="missing"), tmp_path)
+    runner = build_runner(
+        adapter_config(tmp_path, module, function="missing"), tmp_path
+    )
     case = EvalCase.model_validate({"id": "missing-function"})
 
     result = runner.run_once(case, "r1")
@@ -107,13 +109,21 @@ def run(case):
         {
             "id": "c1",
             "inputs": {"query": "pricing"},
-            "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
-            "expected_execution": {"expected_route": "knowledge_qa", "must_call_tools": ["retriever.search"], "min_retrieval_docs": 1},
+            "assertions": [
+                {"type": "contains", "target": "$.answer", "expected": "pricing"}
+            ],
+            "expected_execution": {
+                "expected_route": "knowledge_qa",
+                "must_call_tools": ["retriever.search"],
+                "min_retrieval_docs": 1,
+            },
         }
     )
 
     raw = runner.run_once(case, "r1")
-    result = evaluate_case("r1", case, raw, load_config(Path("does-not-exist.yaml")).evaluation.llm_judge)
+    result = evaluate_case(
+        "r1", case, raw, load_config(Path("does-not-exist.yaml")).evaluation.llm_judge
+    )
 
     assert raw.status == "success"
     assert raw.request == {"inputs": {"query": "pricing"}}
@@ -148,7 +158,9 @@ def run(case):
             "id": "shape",
             "inputs": {"query": "pricing"},
             "context": {"product": "pricing"},
-            "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
+            "assertions": [
+                {"type": "contains", "target": "$.answer", "expected": "pricing"}
+            ],
             "expected_execution": {"expected_route": "case_shape"},
             "evaluation_policy": {"pass_rule": "any"},
         }
@@ -201,10 +213,16 @@ def run(case):
     raise TimeoutError("adapter timed out")
 """.strip(),
     )
-    case = EvalCase.model_validate({"id": "bad", "inputs": {"api_key": "SENTINEL_API_KEY"}})
+    case = EvalCase.model_validate(
+        {"id": "bad", "inputs": {"api_key": "SENTINEL_API_KEY"}}
+    )
 
-    error_result = build_runner(adapter_config(tmp_path, error_module), tmp_path).run_once(case, "r1")
-    timeout_result = build_runner(adapter_config(tmp_path, timeout_module), tmp_path).run_once(case, "r1")
+    error_result = build_runner(
+        adapter_config(tmp_path, error_module), tmp_path
+    ).run_once(case, "r1")
+    timeout_result = build_runner(
+        adapter_config(tmp_path, timeout_module), tmp_path
+    ).run_once(case, "r1")
 
     dumped = json.dumps(error_result.model_dump(mode="json"))
     assert error_result.status == "error"
@@ -230,7 +248,9 @@ def run(case):
         assert list(sys.path) == before
         sys.path.insert(0, str(tmp_path))
         try:
-            (tmp_path / f"{module}.py").write_text("def run(case):\n    return {'answer': 'changed'}\n")
+            (tmp_path / f"{module}.py").write_text(
+                "def run(case):\n    return {'answer': 'changed'}\n"
+            )
             case = EvalCase.model_validate({"id": "cache"})
             raw = runner.run_once(case, "r1")
             assert raw.response == {"answer": "ok"}
@@ -243,14 +263,24 @@ def run(case):
 def test_generated_adapter_template_imports_without_io_boilerplate(tmp_path: Path):
     from importlib import resources
 
-    eval_yaml = resources.files("agent_eval.templates").joinpath("eval.yaml").read_text()
-    sample_agent = resources.files("agent_eval.templates").joinpath("sample_agent.py").read_text()
+    eval_yaml = (
+        resources.files("agent_eval.templates").joinpath("eval.yaml").read_text()
+    )
+    sample_agent = (
+        resources.files("agent_eval.templates").joinpath("sample_agent.py").read_text()
+    )
     (tmp_path / "eval.yaml").write_text(eval_yaml)
     (tmp_path / "sample_agent.py").write_text(sample_agent)
     try:
         config = load_config(tmp_path / "eval.yaml")
         runner = build_runner(config, tmp_path)
-        case = EvalCase.model_validate({"id": "generated", "inputs": {"query": "route knowledge pricing"}, "context": {"product": "pricing"}})
+        case = EvalCase.model_validate(
+            {
+                "id": "generated",
+                "inputs": {"query": "route knowledge pricing"},
+                "context": {"product": "pricing"},
+            }
+        )
 
         raw = runner.run_once(case, "r1")
 

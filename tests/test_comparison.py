@@ -62,8 +62,14 @@ def test_compare_runs_computes_case_and_cluster_transitions(tmp_path: Path):
         "target_pass_rate": pytest.approx(66.6666666667),
         "pass_rate_delta": pytest.approx(16.6666666667),
     }
-    transitions = {item["case_id"]: item["transition"] for item in dumped["case_transitions"]}
-    assert transitions == {"c1": "passed_to_failed", "c2": "failed_to_passed", "c3": "added"}
+    transitions = {
+        item["case_id"]: item["transition"] for item in dumped["case_transitions"]
+    }
+    assert transitions == {
+        "c1": "passed_to_failed",
+        "c2": "failed_to_passed",
+        "c3": "added",
+    }
     assert dumped["cluster_transitions"] == {
         "added": ["cluster_new"],
         "removed": ["cluster_old"],
@@ -72,8 +78,12 @@ def test_compare_runs_computes_case_and_cluster_transitions(tmp_path: Path):
 
 
 def test_compare_runs_reads_minimum_old_schema_and_rejects_traversal(tmp_path: Path):
-    make_run(tmp_path, "base", [{"run_id": "base", "case_id": "old", "passed": True}], [])
-    make_run(tmp_path, "target", [{"run_id": "target", "case_id": "old", "passed": True}], [])
+    make_run(
+        tmp_path, "base", [{"run_id": "base", "case_id": "old", "passed": True}], []
+    )
+    make_run(
+        tmp_path, "target", [{"run_id": "target", "case_id": "old", "passed": True}], []
+    )
 
     comparison = compare_runs(tmp_path, "base", "target")
     assert comparison.case_transitions[0].transition == "unchanged_pass"

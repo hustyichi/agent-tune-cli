@@ -30,26 +30,39 @@ def clean_generated_artifacts() -> None:
             shutil.rmtree(path)
 
 
-def run(command: list[str], *, cwd: Path = REPO_ROOT) -> subprocess.CompletedProcess[str]:
+def run(
+    command: list[str], *, cwd: Path = REPO_ROOT
+) -> subprocess.CompletedProcess[str]:
     print(f"+ {' '.join(command)}", flush=True)
     return subprocess.run(command, cwd=cwd, text=True, check=True)
 
 
 def bin_path(venv_dir: Path, executable: str) -> Path:
     scripts = "Scripts" if os.name == "nt" else "bin"
-    suffix = ".exe" if os.name == "nt" and executable in {"python", "pip", "agent-eval"} else ""
+    suffix = (
+        ".exe"
+        if os.name == "nt" and executable in {"python", "pip", "agent-eval"}
+        else ""
+    )
     return venv_dir / scripts / f"{executable}{suffix}"
 
 
 def build_distributions(temp_dir: Path) -> list[Path]:
     dist_dir = temp_dir / "dist"
     dist_dir.mkdir()
-    run([sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir", str(dist_dir)])
+    run(
+        [sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir", str(dist_dir)]
+    )
     artifacts = sorted(dist_dir.iterdir())
     if not artifacts:
         raise AssertionError("build produced no artifacts")
-    if not any(path.name.startswith("agent_deepeval-") and path.suffix == ".whl" for path in artifacts):
-        raise AssertionError(f"wheel name did not normalize to agent_deepeval: {[p.name for p in artifacts]}")
+    if not any(
+        path.name.startswith("agent_deepeval-") and path.suffix == ".whl"
+        for path in artifacts
+    ):
+        raise AssertionError(
+            f"wheel name did not normalize to agent_deepeval: {[p.name for p in artifacts]}"
+        )
     run([sys.executable, "-m", "twine", "check", *map(str, artifacts)])
     return artifacts
 
@@ -61,6 +74,7 @@ def create_venv(venv_dir: Path) -> Path:
         run([uv_bin, "venv", str(venv_dir)])
     else:
         import venv
+
         venv.EnvBuilder(with_pip=True).create(venv_dir)
     return bin_path(venv_dir, "python")
 
@@ -68,7 +82,9 @@ def create_venv(venv_dir: Path) -> Path:
 def install_wheel(python_bin: Path, artifacts: list[Path]) -> None:
     wheels = [path for path in artifacts if path.suffix == ".whl"]
     if len(wheels) != 1:
-        raise AssertionError(f"expected exactly one wheel, found {[p.name for p in wheels]}")
+        raise AssertionError(
+            f"expected exactly one wheel, found {[p.name for p in wheels]}"
+        )
     uv_bin = shutil.which("uv")
     if uv_bin:
         run([uv_bin, "pip", "install", "--python", str(python_bin), str(wheels[0])])
@@ -83,7 +99,10 @@ def run_installed_e2e(python_bin: Path, work_dir: Path) -> None:
     run([str(agent_eval), "run"], cwd=work_dir)
     run([str(agent_eval), "inspect", "--run", "latest"], cwd=work_dir)
     run([str(agent_eval), "export", "--run", "latest"], cwd=work_dir)
-    run([str(agent_eval), "compare", "--base", "latest", "--target", "latest"], cwd=work_dir)
+    run(
+        [str(agent_eval), "compare", "--base", "latest", "--target", "latest"],
+        cwd=work_dir,
+    )
     assert_required_artifacts(work_dir)
 
 
@@ -96,7 +115,9 @@ def assert_required_artifacts(work_dir: Path) -> None:
         raise AssertionError("missing reports/latest.md")
     run_id = latest.read_text().strip()
     run_dir = work_dir / "runs" / run_id
-    missing = sorted(name for name in REQUIRED_RUN_ARTIFACTS if not (run_dir / name).exists())
+    missing = sorted(
+        name for name in REQUIRED_RUN_ARTIFACTS if not (run_dir / name).exists()
+    )
     if missing:
         raise AssertionError(f"missing run artifacts: {missing}")
     manifest = json.loads((run_dir / "manifest.json").read_text())

@@ -22,14 +22,24 @@ EXECUTION_ROOT_CAUSES = {
 }
 
 
-def evaluate_case(run_id: str, case: EvalCase, raw: RawResult, llm_config) -> EvalResult:
+def evaluate_case(
+    run_id: str, case: EvalCase, raw: RawResult, llm_config
+) -> EvalResult:
     results = []
     results.extend(RuleEvaluator().evaluate(case, raw))
     results.extend(ExecutionEvaluator().evaluate(case, raw))
     results.extend(LlmJudgeEvaluator(llm_config).evaluate(case, raw))
-    passed = raw.status == "success" and decide_pass(results, case.evaluation_policy.pass_rule)
+    passed = raw.status == "success" and decide_pass(
+        results, case.evaluation_policy.pass_rule
+    )
     signature = None if passed else build_signature(case, raw, results)
-    return EvalResult(run_id=run_id, case_id=case.id, passed=passed, assertion_results=results, failure_signature=signature)
+    return EvalResult(
+        run_id=run_id,
+        case_id=case.id,
+        passed=passed,
+        assertion_results=results,
+        failure_signature=signature,
+    )
 
 
 def _summary(value: Any, limit: int = 160) -> str:
@@ -53,7 +63,9 @@ def _matching_assertion(case: EvalCase, typ: str):
     }
     if typ in aliases:
         return None
-    return next((assertion for assertion in case.assertions if assertion.type == typ), None)
+    return next(
+        (assertion for assertion in case.assertions if assertion.type == typ), None
+    )
 
 
 def _detail(value: str | None) -> str | None:
@@ -62,13 +74,19 @@ def _detail(value: str | None) -> str | None:
     return redact_text(value)
 
 
-def _root_cause_for_execution_failure(case: EvalCase, raw: RawResult, result) -> RootCause | None:
+def _root_cause_for_execution_failure(
+    case: EvalCase, raw: RawResult, result
+) -> RootCause | None:
     if result.type == "min_retrieval_docs":
         expected = case.expected_execution.min_retrieval_docs or 0
         debug = raw.debug_meta or {}
         count = debug.get("retrieval_doc_count") or 0
         retrieval_used = debug.get("retrieval_used")
-        cause = "retrieval_missing" if expected > 0 and not retrieval_used and count == 0 else "retrieval_docs_insufficient"
+        cause = (
+            "retrieval_missing"
+            if expected > 0 and not retrieval_used and count == 0
+            else "retrieval_docs_insufficient"
+        )
         return cause, _detail(result.reason), "retrieval"
     if result.type in EXECUTION_ROOT_CAUSES:
         cause, phase = EXECUTION_ROOT_CAUSES[result.type]
@@ -113,21 +131,32 @@ def build_signature(case: EvalCase, raw: RawResult, results) -> FailureSignature
     actual = None
     metric = failed.metric if failed else None
     if assertion is not None:
-        expected = assertion.expected if assertion.expected is not None else assertion.value
+        expected = (
+            assertion.expected if assertion.expected is not None else assertion.value
+        )
         if expected is None and assertion.contains is not None:
             expected = assertion.contains
         metric = metric or assertion.metric
         actual = get_path(raw.response, assertion.target or "$", None)
-    root_cause, root_cause_detail, execution_phase = _derive_root_cause(case, raw, results)
+    root_cause, root_cause_detail, execution_phase = _derive_root_cause(
+        case, raw, results
+    )
     return FailureSignature(
         assertion_type=typ,
-        error_code=(debug.get("error_code") or (raw.error.type if raw.error else "assertion_failed")),
+        error_code=(
+            debug.get("error_code")
+            or (raw.error.type if raw.error else "assertion_failed")
+        ),
         route_name=debug.get("route") or "",
         tool_name=first_tool,
         tag=case.tags[0] if case.tags else "",
         priority=case.priority,
         metric=metric,
-        assertion_reason_code=(redact_text(failed.reason.split(":", 1)[0]) if failed and failed.reason else None),
+        assertion_reason_code=(
+            redact_text(failed.reason.split(":", 1)[0])
+            if failed and failed.reason
+            else None
+        ),
         expected_summary=_summary(expected) if expected is not None else None,
         actual_summary=_summary(actual) if actual is not None else None,
         root_cause=root_cause,

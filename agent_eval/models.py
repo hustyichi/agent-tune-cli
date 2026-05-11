@@ -317,7 +317,14 @@ class CaseTransition(BaseModel):
     case_id: str
     base_passed: bool | None = None
     target_passed: bool | None = None
-    transition: Literal["passed_to_failed", "failed_to_passed", "unchanged_pass", "unchanged_fail", "added", "removed"]
+    transition: Literal[
+        "passed_to_failed",
+        "failed_to_passed",
+        "unchanged_pass",
+        "unchanged_fail",
+        "added",
+        "removed",
+    ]
 
 
 class ClusterTransitions(BaseModel):

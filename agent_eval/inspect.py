@@ -12,7 +12,9 @@ def load_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def inspect_run(root: Path, run: str, case_id: str | None = None, cluster_id: str | None = None) -> str:
+def inspect_run(
+    root: Path, run: str, case_id: str | None = None, cluster_id: str | None = None
+) -> str:
     run_dir = resolve_run(root, run)
     if not run_dir.exists():
         raise FileNotFoundError(f"Run not found: {run}")
@@ -22,10 +24,15 @@ def inspect_run(root: Path, run: str, case_id: str | None = None, cluster_id: st
         item = next((e for e in evals if e["case_id"] == case_id), None)
         if not item:
             raise FileNotFoundError(f"Case not found: {case_id}")
-        return json.dumps({"eval": item, "raw": raws.get(case_id)}, indent=2, ensure_ascii=False)
+        return json.dumps(
+            {"eval": item, "raw": raws.get(case_id)}, indent=2, ensure_ascii=False
+        )
     clusters = json.loads((run_dir / "clusters.json").read_text())
     if cluster_id:
-        item = next((c for c in clusters.get("clusters", []) if c["cluster_id"] == cluster_id), None)
+        item = next(
+            (c for c in clusters.get("clusters", []) if c["cluster_id"] == cluster_id),
+            None,
+        )
         if not item:
             raise FileNotFoundError(f"Cluster not found: {cluster_id}")
         return json.dumps(item, indent=2, ensure_ascii=False)

@@ -47,13 +47,23 @@ class ScriptRunner(BaseRunner):
                     proc = self._run_command(args)
                 except FileNotFoundError as fallback_exc:
                     input_file.unlink(missing_ok=True)
-                    return error_result(run_id, case, "error", start, str(fallback_exc), "process")
+                    return error_result(
+                        run_id, case, "error", start, str(fallback_exc), "process"
+                    )
             else:
                 input_file.unlink(missing_ok=True)
                 return error_result(run_id, case, "error", start, str(exc), "process")
         except subprocess.TimeoutExpired as exc:
             input_file.unlink(missing_ok=True)
-            return error_result(run_id, case, "timeout", start, f"Script timed out after {self.timeout}s", "timeout", stderr=redact_text(exc.stderr))
+            return error_result(
+                run_id,
+                case,
+                "timeout",
+                start,
+                f"Script timed out after {self.timeout}s",
+                "timeout",
+                stderr=redact_text(exc.stderr),
+            )
         finally:
             input_file.unlink(missing_ok=True)
         latency = (time.perf_counter() - start) * 1000
@@ -66,7 +76,12 @@ class ScriptRunner(BaseRunner):
                 request=redact({"inputs": case.inputs, "command": command}),
                 response={},
                 debug_meta={},
-                error={"message": redact_text("Script exited nonzero"), "type": "process", "exit_code": proc.returncode, "stderr": redact_text(proc.stderr[-2000:])},
+                error={
+                    "message": redact_text("Script exited nonzero"),
+                    "type": "process",
+                    "exit_code": proc.returncode,
+                    "stderr": redact_text(proc.stderr[-2000:]),
+                },
             )
         try:
             output = json.loads(proc.stdout or "{}")
@@ -79,7 +94,11 @@ class ScriptRunner(BaseRunner):
                 request=redact({"inputs": case.inputs, "command": command}),
                 response={},
                 debug_meta={},
-                error={"message": redact_text(f"Invalid JSON stdout: {exc}"), "type": "parse", "stderr": redact_text(proc.stderr[-2000:])},
+                error={
+                    "message": redact_text(f"Invalid JSON stdout: {exc}"),
+                    "type": "parse",
+                    "stderr": redact_text(proc.stderr[-2000:]),
+                },
             )
         if isinstance(output, dict) and "response" in output:
             response = output.get("response") or {}

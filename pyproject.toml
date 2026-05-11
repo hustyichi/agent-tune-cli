@@ -17,7 +17,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.15.0",
+]
 release = ["build>=1.2", "twine>=5"]
 deepeval = ["deepeval>=2.0"]
 
@@ -33,3 +36,12 @@ agent_eval = ["templates/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

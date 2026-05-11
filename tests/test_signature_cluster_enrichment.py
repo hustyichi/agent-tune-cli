@@ -8,7 +8,14 @@ from agent_eval.artifacts import build_repair_input
 from agent_eval.clustering import CLUSTER_KEY_VERSION, cluster_failures, make_failures
 from agent_eval.config import load_config
 from agent_eval.evaluators import evaluate_case
-from agent_eval.models import ErrorInfo, EvalCase, FailureRecord, FailureSignature, LlmJudgeConfig, RawResult
+from agent_eval.models import (
+    ErrorInfo,
+    EvalCase,
+    FailureRecord,
+    FailureSignature,
+    LlmJudgeConfig,
+    RawResult,
+)
 from agent_eval.reporting import render_summary_from_analysis
 
 
@@ -35,10 +42,16 @@ def test_failure_signature_adds_optional_redacted_analysis_fields():
         latency_ms=1,
         request={},
         response={"answer": "token sk-live-secret-123 was exposed"},
-        debug_meta={"route": "knowledge_qa", "error_code": "insufficient_answer", "tool_calls": [{"name": "retriever.search"}]},
+        debug_meta={
+            "route": "knowledge_qa",
+            "error_code": "insufficient_answer",
+            "tool_calls": [{"name": "retriever.search"}],
+        },
     )
 
-    result = evaluate_case("r1", case, raw, load_config(Path("does-not-exist.yaml")).evaluation.llm_judge)
+    result = evaluate_case(
+        "r1", case, raw, load_config(Path("does-not-exist.yaml")).evaluation.llm_judge
+    )
     sig = result.failure_signature
     assert sig is not None
     assert sig.assertion_type == "contains"
@@ -62,7 +75,9 @@ def test_cluster_naming_is_deterministic_and_preserves_identity_key():
             "id": "c1",
             "tags": ["rag"],
             "priority": "p2",
-            "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
+            "assertions": [
+                {"type": "contains", "target": "$.answer", "expected": "pricing"}
+            ],
         }
     )
     raw = RawResult(
@@ -72,7 +87,11 @@ def test_cluster_naming_is_deterministic_and_preserves_identity_key():
         latency_ms=1,
         request={},
         response={"answer": "other"},
-        debug_meta={"route": "knowledge_qa", "error_code": "insufficient_answer", "tool_calls": [{"name": "retriever.search"}]},
+        debug_meta={
+            "route": "knowledge_qa",
+            "error_code": "insufficient_answer",
+            "tool_calls": [{"name": "retriever.search"}],
+        },
     )
     ev = evaluate_case("r1", case, raw, cfg.evaluation.llm_judge)
     failures = make_failures("r1", [ev], {"c1": raw})
@@ -91,13 +110,28 @@ def test_cluster_naming_is_deterministic_and_preserves_identity_key():
 
 def test_repair_input_preserves_legacy_fields_and_adds_namespaced_analysis():
     cfg = load_config(Path("does-not-exist.yaml"))
-    case = EvalCase.model_validate({"id": "c1", "assertions": [{"type": "contains", "target": "$.answer", "expected": "x"}]})
-    raw = RawResult(run_id="r1", case_id="c1", status="success", latency_ms=1, request={}, response={"answer": "no"}, debug_meta={"error_code": "insufficient_answer"})
+    case = EvalCase.model_validate(
+        {
+            "id": "c1",
+            "assertions": [{"type": "contains", "target": "$.answer", "expected": "x"}],
+        }
+    )
+    raw = RawResult(
+        run_id="r1",
+        case_id="c1",
+        status="success",
+        latency_ms=1,
+        request={},
+        response={"answer": "no"},
+        debug_meta={"error_code": "insufficient_answer"},
+    )
     ev = evaluate_case("r1", case, raw, cfg.evaluation.llm_judge)
     failures = make_failures("r1", [ev], {"c1": raw})
     clusters = cluster_failures("r1", failures)
 
-    repair = build_repair_input("demo", "r1", clusters, failures).model_dump(mode="json")
+    repair = build_repair_input("demo", "r1", clusters, failures).model_dump(
+        mode="json"
+    )
 
     cluster = repair["clusters"][0]
     assert cluster["cluster_id"]
@@ -113,7 +147,9 @@ def test_root_cause_prefers_execution_failure_over_earlier_content_failure():
     case = EvalCase.model_validate(
         {
             "id": "masked_rag_failure",
-            "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
+            "assertions": [
+                {"type": "contains", "target": "$.answer", "expected": "pricing"}
+            ],
             "expected_execution": {"must_call_tools": ["retriever.search"]},
         }
     )
@@ -129,7 +165,10 @@ def test_root_cause_prefers_execution_failure_over_earlier_content_failure():
 
     result = evaluate_case("r1", case, raw, cfg.evaluation.llm_judge)
 
-    assert [r.type for r in result.assertion_results if not r.passed] == ["contains", "must_call_tools"]
+    assert [r.type for r in result.assertion_results if not r.passed] == [
+        "contains",
+        "must_call_tools",
+    ]
     assert result.failure_signature is not None
     assert result.failure_signature.assertion_type == "contains"
     assert result.failure_signature.root_cause == "required_tool_missing"
@@ -138,7 +177,9 @@ def test_root_cause_prefers_execution_failure_over_earlier_content_failure():
 
 def test_root_cause_distinguishes_retrieval_missing_and_insufficient_docs():
     cfg = load_config(Path("does-not-exist.yaml"))
-    case = EvalCase.model_validate({"id": "retrieval", "expected_execution": {"min_retrieval_docs": 2}})
+    case = EvalCase.model_validate(
+        {"id": "retrieval", "expected_execution": {"min_retrieval_docs": 2}}
+    )
     missing_raw = RawResult(
         run_id="r1",
         case_id="retrieval_missing",
@@ -155,8 +196,18 @@ def test_root_cause_distinguishes_retrieval_missing_and_insufficient_docs():
         }
     )
 
-    missing = evaluate_case("r1", case.model_copy(update={"id": "retrieval_missing"}), missing_raw, cfg.evaluation.llm_judge)
-    insufficient = evaluate_case("r1", case.model_copy(update={"id": "retrieval_insufficient"}), insufficient_raw, cfg.evaluation.llm_judge)
+    missing = evaluate_case(
+        "r1",
+        case.model_copy(update={"id": "retrieval_missing"}),
+        missing_raw,
+        cfg.evaluation.llm_judge,
+    )
+    insufficient = evaluate_case(
+        "r1",
+        case.model_copy(update={"id": "retrieval_insufficient"}),
+        insufficient_raw,
+        cfg.evaluation.llm_judge,
+    )
 
     assert missing.failure_signature is not None
     assert missing.failure_signature.root_cause == "retrieval_missing"
@@ -167,10 +218,28 @@ def test_root_cause_distinguishes_retrieval_missing_and_insufficient_docs():
 
 
 def test_root_cause_llm_judge_failure_when_no_higher_precedence_failure():
-    case = EvalCase.model_validate({"id": "judge", "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}]})
-    raw = RawResult(run_id="r1", case_id="judge", status="success", latency_ms=1, request={}, response={"answer": "ok"}, debug_meta={})
+    case = EvalCase.model_validate(
+        {
+            "id": "judge",
+            "assertions": [{"type": "llm_judge", "metric": "answer_relevancy"}],
+        }
+    )
+    raw = RawResult(
+        run_id="r1",
+        case_id="judge",
+        status="success",
+        latency_ms=1,
+        request={},
+        response={"answer": "ok"},
+        debug_meta={},
+    )
 
-    result = evaluate_case("r1", case, raw, LlmJudgeConfig(enabled=True, provider="stub", model="stub", stub_result="fail"))
+    result = evaluate_case(
+        "r1",
+        case,
+        raw,
+        LlmJudgeConfig(enabled=True, provider="stub", model="stub", stub_result="fail"),
+    )
 
     assert result.failure_signature is not None
     assert result.failure_signature.root_cause == "llm_judge_failure"
@@ -196,11 +265,24 @@ def test_root_cause_raw_status_precedence_and_redacted_detail():
     assert result.failure_signature is not None
     assert result.failure_signature.root_cause == "target_error"
     assert result.failure_signature.execution_phase == "target"
-    assert "sk-live-secret-123" not in (result.failure_signature.root_cause_detail or "")
+    assert "sk-live-secret-123" not in (
+        result.failure_signature.root_cause_detail or ""
+    )
     assert "[REDACTED]" in (result.failure_signature.root_cause_detail or "")
 
-    timeout = raw.model_copy(update={"case_id": "timeout", "status": "timeout", "error": ErrorInfo(message="timed out", type="timeout")})
-    timeout_result = evaluate_case("r1", case.model_copy(update={"id": "timeout"}), timeout, cfg.evaluation.llm_judge)
+    timeout = raw.model_copy(
+        update={
+            "case_id": "timeout",
+            "status": "timeout",
+            "error": ErrorInfo(message="timed out", type="timeout"),
+        }
+    )
+    timeout_result = evaluate_case(
+        "r1",
+        case.model_copy(update={"id": "timeout"}),
+        timeout,
+        cfg.evaluation.llm_judge,
+    )
 
     assert timeout_result.failure_signature is not None
     assert timeout_result.failure_signature.root_cause == "timeout"
@@ -246,7 +328,10 @@ def test_cluster_root_cause_aggregation_preserves_v1_identity_for_mixed_causes()
     analysis = cluster.common_signature["analysis"]
     assert analysis["cluster_key_version"] == "v1"
     assert analysis["root_causes"] == ["required_tool_missing", "retrieval_missing"]
-    assert analysis["root_cause_counts"] == {"required_tool_missing": 1, "retrieval_missing": 1}
+    assert analysis["root_cause_counts"] == {
+        "required_tool_missing": 1,
+        "retrieval_missing": 1,
+    }
     assert analysis["common_root_cause"] is None
 
 
@@ -257,7 +342,9 @@ def test_homogeneous_root_cause_reaches_clusters_repair_and_summary():
             {
                 "id": "c1",
                 "tags": ["rag"],
-                "assertions": [{"type": "contains", "target": "$.answer", "expected": "pricing"}],
+                "assertions": [
+                    {"type": "contains", "target": "$.answer", "expected": "pricing"}
+                ],
                 "expected_execution": {"must_call_tools": ["retriever.search"]},
             }
         ),
@@ -265,16 +352,37 @@ def test_homogeneous_root_cause_reaches_clusters_repair_and_summary():
             {
                 "id": "c2",
                 "tags": ["rag"],
-                "assertions": [{"type": "contains", "target": "$.answer", "expected": "discount"}],
+                "assertions": [
+                    {"type": "contains", "target": "$.answer", "expected": "discount"}
+                ],
                 "expected_execution": {"must_call_tools": ["retriever.search"]},
             }
         ),
     ]
     raws = [
-        RawResult(run_id="r1", case_id="c1", status="success", latency_ms=1, request={}, response={"answer": "no"}, debug_meta={"route": "knowledge_qa", "tool_calls": []}),
-        RawResult(run_id="r1", case_id="c2", status="success", latency_ms=1, request={}, response={"answer": "no"}, debug_meta={"route": "knowledge_qa", "tool_calls": []}),
+        RawResult(
+            run_id="r1",
+            case_id="c1",
+            status="success",
+            latency_ms=1,
+            request={},
+            response={"answer": "no"},
+            debug_meta={"route": "knowledge_qa", "tool_calls": []},
+        ),
+        RawResult(
+            run_id="r1",
+            case_id="c2",
+            status="success",
+            latency_ms=1,
+            request={},
+            response={"answer": "no"},
+            debug_meta={"route": "knowledge_qa", "tool_calls": []},
+        ),
     ]
-    evals = [evaluate_case("r1", case, raw, cfg.evaluation.llm_judge) for case, raw in zip(cases, raws)]
+    evals = [
+        evaluate_case("r1", case, raw, cfg.evaluation.llm_judge)
+        for case, raw in zip(cases, raws)
+    ]
     failures = make_failures("r1", evals, {raw.case_id: raw for raw in raws})
     clusters = cluster_failures("r1", failures)
 
@@ -285,9 +393,16 @@ def test_homogeneous_root_cause_reaches_clusters_repair_and_summary():
 
     analysis = build_run_analysis("r1", cases, raws, evals, failures, clusters)
     summary = render_summary_from_analysis(analysis)
-    repair = build_repair_input("demo", "r1", clusters, failures, analysis=analysis).model_dump(mode="json")
+    repair = build_repair_input(
+        "demo", "r1", clusters, failures, analysis=analysis
+    ).model_dump(mode="json")
 
     assert "Root cause: required_tool_missing" in summary
     assert repair["clusters"][0]["analysis"]["root_causes"] == ["required_tool_missing"]
-    assert repair["clusters"][0]["analysis"]["root_cause_counts"] == {"required_tool_missing": 2}
-    assert repair["clusters"][0]["analysis"]["common_root_cause"] == "required_tool_missing"
+    assert repair["clusters"][0]["analysis"]["root_cause_counts"] == {
+        "required_tool_missing": 2
+    }
+    assert (
+        repair["clusters"][0]["analysis"]["common_root_cause"]
+        == "required_tool_missing"
+    )

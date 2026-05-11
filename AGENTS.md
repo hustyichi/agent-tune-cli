@@ -8,6 +8,8 @@ This repository publishes the Python package `agent-deepeval` and installs the `
 
 ```bash
 python3 -m pip install -e '.[dev,release]'  # install editable package plus test/release tools
+python -m ruff format .                     # format Python code with the canonical Ruff formatter
+python -m ruff format --check .             # verify Python formatting without rewriting files
 pytest                                      # run the full test suite
 python -m compileall -q agent_eval tests    # quick syntax/import sanity check
 python scripts/check-release.py             # full release gate: tests, build, twine check, wheel smoke, fresh CLI e2e
@@ -19,7 +21,7 @@ Use `agent-eval --help` and a temporary project with `agent-eval init && agent-e
 
 ## Coding Style & Naming Conventions
 
-Target Python 3.10+. Use 4-space indentation, type hints where they clarify interfaces, and small functions with explicit error messages. Keep CLI command names kebab-case (`agent-eval compare`) and Python names snake_case. Preserve public artifact names and protocol values such as `agent-eval/v1alpha1` unless a migration plan updates tests and docs together.
+Target Python 3.10+. Ruff is the canonical Python formatter for this repository; run `python -m ruff format .` before committing and use the checked-in `pyproject.toml` Ruff settings rather than another formatter. Use 4-space indentation, type hints where they clarify interfaces, and small functions with explicit error messages. Keep CLI command names kebab-case (`agent-eval compare`) and Python names snake_case. Preserve public artifact names and protocol values such as `agent-eval/v1alpha1` unless a migration plan updates tests and docs together.
 
 ## Testing Guidelines
 

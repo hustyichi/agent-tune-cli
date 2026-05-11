@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from agent_eval.artifacts import resolve_run
-from agent_eval.models import CaseTransition, ClusterTransitions, ComparisonTotals, RunComparison
+from agent_eval.models import (
+    CaseTransition,
+    ClusterTransitions,
+    ComparisonTotals,
+    RunComparison,
+)
 from agent_eval.utils.redact import redact
 
 CLUSTER_KEY_VERSION = "v1"
@@ -57,7 +62,9 @@ def _evals_by_case(run_dir: Path) -> dict[str, bool]:
     result: dict[str, bool] = {}
     for row in rows:
         if "case_id" not in row or "passed" not in row:
-            raise ValueError("eval_results.jsonl entries must include case_id and passed")
+            raise ValueError(
+                "eval_results.jsonl entries must include case_id and passed"
+            )
         result[str(row["case_id"])] = bool(row["passed"])
     return result
 
@@ -147,7 +154,11 @@ def compare_runs(root: Path, base: str, target: str) -> RunComparison:
 
 def comparison_summary(comparison: RunComparison) -> str:
     totals = comparison.totals
-    changed = sum(1 for item in comparison.case_transitions if item.transition in CHANGED_CASE_TRANSITIONS)
+    changed = sum(
+        1
+        for item in comparison.case_transitions
+        if item.transition in CHANGED_CASE_TRANSITIONS
+    )
     return (
         f"Comparison {comparison.base_run_id} -> {comparison.target_run_id}: "
         f"pass_rate_delta={totals.pass_rate_delta:.1f}pp "

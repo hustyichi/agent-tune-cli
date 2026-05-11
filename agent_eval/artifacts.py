@@ -81,8 +81,18 @@ class ArtifactStore:
         write_jsonl(self.run_dir / "failures.jsonl", failures)
         write_json(self.run_dir / "clusters.json", clusters.model_dump(mode="json"))
         if analysis is None:
-            analysis = build_run_analysis(self.run_id, cases, raw_results, eval_results, failures, clusters, str(self.run_dir))
-        repair = build_repair_input(self.config.project.name, self.run_id, clusters, failures, analysis=analysis)
+            analysis = build_run_analysis(
+                self.run_id,
+                cases,
+                raw_results,
+                eval_results,
+                failures,
+                clusters,
+                str(self.run_dir),
+            )
+        repair = build_repair_input(
+            self.config.project.name, self.run_id, clusters, failures, analysis=analysis
+        )
         write_json(self.run_dir / "repair_input.json", repair.model_dump(mode="json"))
         (self.run_dir / "summary.md").write_text(summary)
         (self.runs_dir / "latest.txt").write_text(self.run_id + "\n")
@@ -103,7 +113,13 @@ def _bucket_map(buckets: Iterable[Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failures: list[FailureRecord], analysis: RunAnalysis | None = None) -> RepairInput:
+def build_repair_input(
+    project: str,
+    run_id: str,
+    clusters: ClustersFile,
+    failures: list[FailureRecord],
+    analysis: RunAnalysis | None = None,
+) -> RepairInput:
     run_analysis = analysis
     if run_analysis is None:
         # Compatibility path for callers/tests that only have the historical
@@ -111,22 +127,37 @@ def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failur
         # shared analysis shape for cluster-level parity.
         run_analysis = build_run_analysis(run_id, [], [], [], failures, clusters)
     failures_by_case = {f.case_id: f for f in failures}
-    analysis_by_cluster = {cluster.cluster_id: cluster for cluster in run_analysis.clusters}
+    analysis_by_cluster = {
+        cluster.cluster_id: cluster for cluster in run_analysis.clusters
+    }
     repair_clusters: list[RepairCluster] = []
     for cluster in clusters.clusters:
         cluster_analysis = analysis_by_cluster.get(cluster.cluster_id)
         if cluster_analysis:
-            evidence = [item.model_dump(mode="json") for item in cluster_analysis.evidence]
+            evidence = [
+                item.model_dump(mode="json") for item in cluster_analysis.evidence
+            ]
         else:
             evidence = []
             for case_id in cluster.case_ids:
                 failure = failures_by_case.get(case_id)
                 if failure:
-                    evidence.append({"case_id": case_id, "reason": "; ".join(redact_text(reason) or "" for reason in failure.reasons)})
+                    evidence.append(
+                        {
+                            "case_id": case_id,
+                            "reason": "; ".join(
+                                redact_text(reason) or "" for reason in failure.reasons
+                            ),
+                        }
+                    )
         signature = cluster.common_signature or {}
         cluster_payload = {
-            "representative_cases": cluster_analysis.representative_cases if cluster_analysis else cluster.case_ids[:3],
-            "signature_explanation": cluster_analysis.signature_explanation if cluster_analysis else cluster.summary,
+            "representative_cases": cluster_analysis.representative_cases
+            if cluster_analysis
+            else cluster.case_ids[:3],
+            "signature_explanation": cluster_analysis.signature_explanation
+            if cluster_analysis
+            else cluster.summary,
         }
         if isinstance(signature.get("analysis"), dict):
             cluster_payload.update(signature["analysis"])
@@ -136,7 +167,10 @@ def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failur
                     "case_count": cluster_analysis.case_count,
                     "affected_areas": cluster_analysis.affected_areas,
                     "suggested_investigation": cluster_analysis.suggested_investigation,
-                    "evidence": [item.model_dump(mode="json") for item in cluster_analysis.evidence],
+                    "evidence": [
+                        item.model_dump(mode="json")
+                        for item in cluster_analysis.evidence
+                    ],
                 }
             )
         repair_clusters.append(
@@ -146,7 +180,9 @@ def build_repair_input(project: str, run_id: str, clusters: ClustersFile, failur
                 severity=cluster.severity,
                 cases=cluster.case_ids,
                 common_signature=cluster.common_signature,
-                suspected_modules=cluster_analysis.suspected_modules if cluster_analysis else cluster.suspected_modules,
+                suspected_modules=cluster_analysis.suspected_modules
+                if cluster_analysis
+                else cluster.suspected_modules,
                 evidence=evidence,
                 analysis=cluster_payload,
             )

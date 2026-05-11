@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 from agent_eval.analysis import build_run_analysis
-from agent_eval.models import ClustersFile, EvalCase, EvalResult, FailureRecord, RawResult
+from agent_eval.models import (
+    ClustersFile,
+    EvalCase,
+    EvalResult,
+    FailureRecord,
+    RawResult,
+)
 from agent_eval.models import AnalysisBucket, ClusterAnalysis, RunAnalysis
 
 
@@ -22,7 +28,9 @@ def _render_cluster(cluster: ClusterAnalysis) -> list[str]:
     if common_root_cause:
         root_cause_line = f"- Root cause: {common_root_cause}"
     elif root_cause_counts:
-        root_cause_line = "- Root causes: " + ", ".join(f"{cause}={count}" for cause, count in root_cause_counts.items())
+        root_cause_line = "- Root causes: " + ", ".join(
+            f"{cause}={count}" for cause, count in root_cause_counts.items()
+        )
     else:
         root_cause_line = "- Root cause: none identified from local evidence"
     lines = [
@@ -42,7 +50,10 @@ def _render_cluster(cluster: ClusterAnalysis) -> list[str]:
         "",
     ]
     if cluster.evidence:
-        lines += [f"- {item.case_id}: {item.reason or 'no reason recorded'}" for item in cluster.evidence]
+        lines += [
+            f"- {item.case_id}: {item.reason or 'no reason recorded'}"
+            for item in cluster.evidence
+        ]
     else:
         lines.append("- none")
     lines.append("")
@@ -74,12 +85,23 @@ def render_summary_from_analysis(analysis: RunAnalysis) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_summary(run_id: str, cases: list[EvalCase], raw_results: list[RawResult], eval_results: list[EvalResult], failures: list[FailureRecord], clusters: ClustersFile) -> str:
-    analysis = build_run_analysis(run_id, cases, raw_results, eval_results, failures, clusters)
+def render_summary(
+    run_id: str,
+    cases: list[EvalCase],
+    raw_results: list[RawResult],
+    eval_results: list[EvalResult],
+    failures: list[FailureRecord],
+    clusters: ClustersFile,
+) -> str:
+    analysis = build_run_analysis(
+        run_id, cases, raw_results, eval_results, failures, clusters
+    )
     return render_summary_from_analysis(analysis)
 
 
-def console_summary(run_id: str, eval_results: list[EvalResult], clusters: ClustersFile, run_dir: str) -> str:
+def console_summary(
+    run_id: str, eval_results: list[EvalResult], clusters: ClustersFile, run_dir: str
+) -> str:
     total = len(eval_results)
     passed = sum(1 for r in eval_results if r.passed)
     failed = total - passed

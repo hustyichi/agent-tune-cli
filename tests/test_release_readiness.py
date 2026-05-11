@@ -97,6 +97,7 @@ def test_docs_preserve_adoption_polish_scope_and_current_surface():
     ]:
         assert expected in checklist
 
+
 def test_release_assets_document_required_gates():
     checklist = REPO_ROOT / "docs" / "release-checklist.md"
     script = REPO_ROOT / "scripts" / "check-release.py"

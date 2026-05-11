@@ -34,7 +34,9 @@ def run(case: dict[str, Any]) -> dict[str, Any]:
         }
 
     return {
-        "response": {"answer": f"The {product} answer uses retrieved product pricing context."},
+        "response": {
+            "answer": f"The {product} answer uses retrieved product pricing context."
+        },
         "debug_meta": {
             "route": "knowledge_qa",
             "retrieval_used": True,

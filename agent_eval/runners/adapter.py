@@ -20,7 +20,9 @@ class PythonAdapterRunner(BaseRunner):
         self._callable: Callable[[dict[str, Any]], Any] | None = None
         self._load_error: Exception | None = None
         if not config.module:
-            raise ValueError("target.adapter.module is required when project.mode is adapter")
+            raise ValueError(
+                "target.adapter.module is required when project.mode is adapter"
+            )
         self._resolve_callable()
 
     def _resolve_callable(self) -> None:
@@ -32,7 +34,9 @@ class PythonAdapterRunner(BaseRunner):
             module = importlib.import_module(self.config.module)
             candidate = getattr(module, self.config.function)
             if not callable(candidate):
-                raise TypeError(f"target.adapter.function is not callable: {self.config.function}")
+                raise TypeError(
+                    f"target.adapter.function is not callable: {self.config.function}"
+                )
             self._callable = candidate
         except Exception as exc:  # noqa: BLE001 - deferred to per-case RawResult
             self._load_error = exc
@@ -42,7 +46,9 @@ class PythonAdapterRunner(BaseRunner):
     def run_once(self, case: EvalCase, run_id: str) -> RawResult:
         start = time.perf_counter()
         if self._load_error is not None:
-            return error_result(run_id, case, "error", start, str(self._load_error), "adapter")
+            return error_result(
+                run_id, case, "error", start, str(self._load_error), "adapter"
+            )
         assert self._callable is not None
         try:
             output = self._callable(case.model_dump(mode="json"))

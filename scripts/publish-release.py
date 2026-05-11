@@ -59,15 +59,23 @@ def assert_not_already_published(name: str, version: str) -> None:
     try:
         with urllib.request.urlopen(url, timeout=15) as response:
             if response.status == 200:
-                raise ReleaseError(f"{name}=={version} already exists on PyPI; bump the version first")
-            raise ReleaseError(f"unexpected PyPI response for {url}: HTTP {response.status}")
+                raise ReleaseError(
+                    f"{name}=={version} already exists on PyPI; bump the version first"
+                )
+            raise ReleaseError(
+                f"unexpected PyPI response for {url}: HTTP {response.status}"
+            )
     except urllib.error.HTTPError as error:
         if error.code == 404:
             print(f"PyPI availability: OK ({name}=={version} is not published)")
             return
-        raise ReleaseError(f"unexpected PyPI response for {url}: HTTP {error.code}") from error
+        raise ReleaseError(
+            f"unexpected PyPI response for {url}: HTTP {error.code}"
+        ) from error
     except urllib.error.URLError as error:
-        raise ReleaseError(f"could not verify PyPI availability for {name}=={version}: {error}") from error
+        raise ReleaseError(
+            f"could not verify PyPI availability for {name}=={version}: {error}"
+        ) from error
 
 
 def clean_dist() -> None:
@@ -81,7 +89,9 @@ def clean_dist() -> None:
 
 def build_artifacts() -> list[Path]:
     clean_dist()
-    run([sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir", str(DIST_DIR)])
+    run(
+        [sys.executable, "-m", "build", "--sdist", "--wheel", "--outdir", str(DIST_DIR)]
+    )
     artifacts = sorted(path for path in DIST_DIR.iterdir() if path.is_file())
     if not artifacts:
         raise ReleaseError("build produced no dist artifacts")
@@ -94,7 +104,9 @@ def build_artifacts() -> list[Path]:
     return artifacts
 
 
-def wait_for_pypi_version(name: str, version: str, *, timeout_seconds: int = 90) -> None:
+def wait_for_pypi_version(
+    name: str, version: str, *, timeout_seconds: int = 90
+) -> None:
     url = f"{PYPI_JSON_BASE}/{name}/{version}/json"
     deadline = time.monotonic() + timeout_seconds
     last_error = "not checked"
@@ -114,7 +126,9 @@ def wait_for_pypi_version(name: str, version: str, *, timeout_seconds: int = 90)
         except Exception as error:  # index propagation can briefly race network state
             last_error = str(error)
         time.sleep(5)
-    raise ReleaseError(f"upload command finished, but PyPI verification did not observe {name}=={version}: {last_error}")
+    raise ReleaseError(
+        f"upload command finished, but PyPI verification did not observe {name}=={version}: {last_error}"
+    )
 
 
 def parse_args() -> argparse.Namespace:

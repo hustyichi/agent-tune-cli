@@ -15,7 +15,11 @@ from .comparison import compare_runs, comparison_summary
 from .config import load_config
 from .dataset import load_cases
 from .evaluators import evaluate_case
-from .evaluation_policy import attempt_count_for, decide_attempts_pass, select_representative_attempt
+from .evaluation_policy import (
+    attempt_count_for,
+    decide_attempts_pass,
+    select_representative_attempt,
+)
 from .export import export_repair_input
 from .inspect import inspect_run
 from .reporting import console_summary, render_summary_from_analysis
@@ -41,7 +45,9 @@ def _copy_template(name: str, dest: Path, overwrite: bool = False) -> None:
     dest.write_text(content)
 
 
-def _with_attempt_metadata(raw: RawResult, attempt_index: int, attempt_count: int) -> RawResult:
+def _with_attempt_metadata(
+    raw: RawResult, attempt_index: int, attempt_count: int
+) -> RawResult:
     metadata = dict(raw.metadata)
     metadata.update(
         {
@@ -52,7 +58,13 @@ def _with_attempt_metadata(raw: RawResult, attempt_index: int, attempt_count: in
     return raw.model_copy(update={"metadata": metadata}, deep=True)
 
 
-def _run_case_with_policy(case: EvalCase, runner: BaseRunner, run_id: str, retry_times: int, llm_config: LlmJudgeConfig) -> CaseRunResult:
+def _run_case_with_policy(
+    case: EvalCase,
+    runner: BaseRunner,
+    run_id: str,
+    retry_times: int,
+    llm_config: LlmJudgeConfig,
+) -> CaseRunResult:
     total_attempts = attempt_count_for(case)
     raw_attempts = []
     eval_attempts = []
@@ -80,18 +92,29 @@ def _run_case_with_policy(case: EvalCase, runner: BaseRunner, run_id: str, retry
                 }
             )
     attempt_passes = [result.passed for result in eval_attempts]
-    aggregate_passed = decide_attempts_pass(attempt_passes, case.evaluation_policy.pass_rule)
-    representative_index = select_representative_attempt(attempt_passes, aggregate_passed)
+    aggregate_passed = decide_attempts_pass(
+        attempt_passes, case.evaluation_policy.pass_rule
+    )
+    representative_index = select_representative_attempt(
+        attempt_passes, aggregate_passed
+    )
     representative_raw = raw_attempts[representative_index]
     representative_eval = eval_attempts[representative_index]
-    canonical_eval = representative_eval.model_copy(update={"passed": aggregate_passed}, deep=True)
+    canonical_eval = representative_eval.model_copy(
+        update={"passed": aggregate_passed}, deep=True
+    )
     if aggregate_passed:
         canonical_eval.failure_signature = None
-    return CaseRunResult(raw=representative_raw, eval=canonical_eval, attempts=sidecar_rows)
+    return CaseRunResult(
+        raw=representative_raw, eval=canonical_eval, attempts=sidecar_rows
+    )
 
 
 @app.command()
-def init(path: Path = typer.Argument(Path("."), help="Project directory to initialize."), force: bool = typer.Option(False, "--force", help="Overwrite template files.")) -> None:
+def init(
+    path: Path = typer.Argument(Path("."), help="Project directory to initialize."),
+    force: bool = typer.Option(False, "--force", help="Overwrite template files."),
+) -> None:
     """Initialize a local evaluation project."""
     path.mkdir(parents=True, exist_ok=True)
     (path / "cases").mkdir(exist_ok=True)
@@ -105,10 +128,16 @@ def init(path: Path = typer.Argument(Path("."), help="Project directory to initi
 
 @app.command()
 def run(
-    config_path: Path = typer.Option(Path("eval.yaml"), "--config", help="Path to eval.yaml."),
-    dataset: Optional[Path] = typer.Option(None, "--dataset", help="Override dataset path."),
+    config_path: Path = typer.Option(
+        Path("eval.yaml"), "--config", help="Path to eval.yaml."
+    ),
+    dataset: Optional[Path] = typer.Option(
+        None, "--dataset", help="Override dataset path."
+    ),
     run_name: Optional[str] = typer.Option(None, "--run-name", help="Run id/name."),
-    concurrency: Optional[int] = typer.Option(None, "--concurrency", help="Override concurrency."),
+    concurrency: Optional[int] = typer.Option(
+        None, "--concurrency", help="Override concurrency."
+    ),
 ) -> None:
     """Run the full local evaluation pipeline."""
     root = config_path.parent if config_path.parent != Path("") else Path(".")
@@ -129,13 +158,31 @@ def run(
 
     case_results: list[CaseRunResult] = []
     if config.runner.concurrency > 1:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=config.runner.concurrency) as pool:
-            futures = [pool.submit(_run_case_with_policy, case, runner, run_id, config.runner.retry_times, config.evaluation.llm_judge) for case in cases]
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=config.runner.concurrency
+        ) as pool:
+            futures = [
+                pool.submit(
+                    _run_case_with_policy,
+                    case,
+                    runner,
+                    run_id,
+                    config.runner.retry_times,
+                    config.evaluation.llm_judge,
+                )
+                for case in cases
+            ]
             for fut in concurrent.futures.as_completed(futures):
                 case_results.append(fut.result())
     else:
         for case in cases:
-            result = _run_case_with_policy(case, runner, run_id, config.runner.retry_times, config.evaluation.llm_judge)
+            result = _run_case_with_policy(
+                case,
+                runner,
+                run_id,
+                config.runner.retry_times,
+                config.evaluation.llm_judge,
+            )
             case_results.append(result)
             if config.runner.fail_fast and not result.eval.passed:
                 break
@@ -147,15 +194,34 @@ def run(
     attempt_rows = [attempt for result in case_results for attempt in result.attempts]
     raw_by_case = {r.case_id: r for r in raw_results}
     failures = make_failures(run_id, eval_results, raw_by_case)
-    clusters = cluster_failures(run_id, failures) if config.cluster.enabled else cluster_failures(run_id, [])
-    analysis = build_run_analysis(run_id, cases, raw_results, eval_results, failures, clusters, str(store.run_dir))
+    clusters = (
+        cluster_failures(run_id, failures)
+        if config.cluster.enabled
+        else cluster_failures(run_id, [])
+    )
+    analysis = build_run_analysis(
+        run_id, cases, raw_results, eval_results, failures, clusters, str(store.run_dir)
+    )
     summary = render_summary_from_analysis(analysis)
-    store.write_all(cases, raw_results, eval_results, failures, clusters, summary, analysis, attempt_rows)
+    store.write_all(
+        cases,
+        raw_results,
+        eval_results,
+        failures,
+        clusters,
+        summary,
+        analysis,
+        attempt_rows,
+    )
     typer.echo(console_summary(run_id, eval_results, clusters, str(store.run_dir)))
 
 
 @app.command()
-def inspect(run: str = typer.Option("latest", "--run"), case: Optional[str] = typer.Option(None, "--case"), cluster: Optional[str] = typer.Option(None, "--cluster")) -> None:
+def inspect(
+    run: str = typer.Option("latest", "--run"),
+    case: Optional[str] = typer.Option(None, "--case"),
+    cluster: Optional[str] = typer.Option(None, "--cluster"),
+) -> None:
     """Inspect a run, case, or failure cluster from local artifacts."""
     try:
         typer.echo(inspect_run(Path("."), run, case, cluster))
@@ -168,8 +234,12 @@ def inspect(run: str = typer.Option("latest", "--run"), case: Optional[str] = ty
 def compare(
     base: str = typer.Option(..., "--base", help="Base run id, or latest."),
     target: str = typer.Option(..., "--target", help="Target run id, or latest."),
-    output: Optional[Path] = typer.Option(None, "--output", help="Write machine-readable comparison JSON to this path."),
-    show: bool = typer.Option(False, "--show", help="Print machine-readable JSON instead of a human summary."),
+    output: Optional[Path] = typer.Option(
+        None, "--output", help="Write machine-readable comparison JSON to this path."
+    ),
+    show: bool = typer.Option(
+        False, "--show", help="Print machine-readable JSON instead of a human summary."
+    ),
 ) -> None:
     """Compare two local runs."""
     try:
@@ -184,7 +254,12 @@ def compare(
 
 
 @app.command("export")
-def export_cmd(run: str = typer.Option("latest", "--run"), show: bool = typer.Option(False, "--show", help="Print JSON content instead of path.")) -> None:
+def export_cmd(
+    run: str = typer.Option("latest", "--run"),
+    show: bool = typer.Option(
+        False, "--show", help="Print JSON content instead of path."
+    ),
+) -> None:
     """Export repair input for downstream tuning tools."""
     try:
         path = Path(export_repair_input(Path("."), run))
